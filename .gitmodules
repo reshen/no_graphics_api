@@ -1,0 +1,3 @@
+[submodule "NoGraphicsAPI"]
+	path = NoGraphicsAPI
+	url = git@github.com:reshen/NoGraphicsAPI.git
