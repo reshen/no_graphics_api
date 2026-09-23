@@ -1,3 +1,5 @@
+#module_parameters (DEBUG := false);
+
 #if OS == .LINUX {
     #load "linux/linux.jai";
     // TODO

@@ -21,21 +21,25 @@ build :: () {
     set_build_options_dc(.{do_output=false});
     options := get_build_options();
     args := options.compile_time_command_line;
-    debug := array_find(args, "-debug");
 
-    if !build_no_graphics_api(debug) {
+    if !build_no_graphics_api("Debug") {
         compiler_set_workspace_status(.FAILED);
         return;
     }
 
-    if !generate_bindings(debug) {
+    if !build_no_graphics_api("Release") {
+        compiler_set_workspace_status(.FAILED);
+        return;
+    }
+
+    if !generate_bindings() {
         compiler_set_workspace_status(.FAILED);
         return;
     }
 }
 
-build_no_graphics_api :: (debug: bool) -> bool {
-    build_type := ifx debug then "Debug" else "Release";
+build_no_graphics_api :: (build_type: string) -> bool {
+    assert(build_type == "Debug" || build_type == "Release");
 
     BUILD_PATH := "NoGraphicsAPI/build";
     make_directory_if_it_does_not_exist(BUILD_PATH, true);
@@ -82,65 +86,38 @@ build_no_graphics_api :: (debug: bool) -> bool {
     return true;
 }
 
-generate_bindings :: (debug: bool) -> bool {
-    build_type := ifx debug then "Debug" else "Release";
-
-    output_filename: string;
+generate_bindings :: () -> bool {
     opts: Generate_Bindings_Options;
 
+    opts.footer = FOOTER;
+    opts.generate_library_declarations = false;
+    opts.generate_compile_time_struct_checks = false;
+
+    // It shouldn't matter if we use Debug or Release libs and headers for generating bindings from
+    // since the binding interface (structs, functions, etc) are identical in either case
+    build_type := "Release";
+    array_add(*opts.library_search_paths, path_join(get_absolute_path("linux"), build_type, "lib64"));
+    array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
+    array_add(*opts.libraries, Library.{filename="libvulkan"});
+    array_add(*opts.include_paths, path_join(get_absolute_path("linux"), build_type, "include"));
+    array_add(*opts.source_files, path_join("linux", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
+    array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20");
+
+    opts.log_stripped_declarations = true;
+    opts.strip_flags = Strip_Flags.CONSTRUCTORS | Strip_Flags.DESTRUCTORS | Strip_Flags.INLINED_FUNCTIONS | Strip_Flags.FUNCTIONS_WITH_VALIST;
+    opts.visitor = visitor;
+
+    output_filename: string;
     #if OS == .LINUX {
         output_filename = "linux/linux.jai";
-        opts.footer = ifx debug then FOOTER_DEBUG else FOOTER;
-        opts.generate_library_declarations = false;
-        opts.generate_compile_time_struct_checks = false;
-        array_add(*opts.library_search_paths, path_join(get_absolute_path("linux"), build_type, "lib64"));
-        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
-        array_add(*opts.libraries, Library.{filename="libvulkan"});
-        array_add(*opts.include_paths, path_join(get_absolute_path("linux"), build_type, "include"));
-        array_add(*opts.source_files, path_join("linux", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
-
+    } else #if OS == .WINDOWS {
+        output_filename = "windows/windows.jai";
         // WIN32_LEAN_AND_MEAN is a preprocessor macro you define before including <windows.h> that excludes rarely-used
         // Windows headers (e.g. winsock, crypto, dde) from windows.h, speeding up compilation and reducing namespace
         // pollution. You can still include those headers explicitly if needed.
-        array_add(*opts.extra_clang_arguments, "-x", "c++", "-DWIN32_LEAN_AND_MEAN", "-std=c++20");
-
-        opts.log_stripped_declarations = true;
-        opts.strip_flags = Strip_Flags.CONSTRUCTORS | 
-            Strip_Flags.DESTRUCTORS | 
-            Strip_Flags.INLINED_FUNCTIONS | 
-            Strip_Flags.FUNCTIONS_WITH_VALIST;
-        opts.visitor = visitor;
-        // TODO
-        // } else #if OS == .WINDOWS {
-        //     output_filename = "windows/windows.jai";
-        //     opts.footer = ifx debug then FOOTER_DEBUG else FOOTER;
-        //     opts.generate_library_declarations = false;
-        //     opts.generate_compile_time_struct_checks = false;
-        //     array_add(*opts.library_search_paths, get_absolute_path("windows"));
-        //     array_add(*opts.library_search_paths, get_absolute_path("box2d/build/src/Release"));
-        //     array_add(*opts.libraries, .{filename=ifx debug then "box2dd.lib" else "box2d.lib"});
-        //     array_add(*opts.include_paths, "box2d/include");
-        //     array_add(*opts.source_files, "box2d/include/box2d/box2d.h");
-        //     array_add(*opts.source_files, "box2d/include/box2d/math_functions.h");
-        //
-        //     array_add( *opts.strip_prefixes, "b2", "B2" );
-        //     opts.log_stripped_declarations = true;
-        //     opts.visitor = visitor;
-        // } else if OS == .MACOS {
-        //     output_filename = "macos/macos.jai";
-        //     opts.footer = ifx debug then FOOTER_DEBUG else FOOTER;
-        //     opts.generate_library_declarations = false;
-        //     opts.generate_compile_time_struct_checks = false;
-        //     array_add(*opts.library_search_paths, get_absolute_path("macos"));
-        //     array_add(*opts.library_search_paths, get_absolute_path("box2d/build/src"));
-        //     array_add(*opts.libraries, .{filename=ifx debug then "libbox2dd.a" else "libbox2d.a"});
-        //     array_add(*opts.include_paths, "box2d/include");
-        //     array_add(*opts.source_files, "box2d/include/box2d/box2d.h");
-        //     array_add(*opts.source_files, "box2d/include/box2d/math_functions.h");
-        //
-        //     array_add( *opts.strip_prefixes, "b2", "B2" );
-        //     opts.log_stripped_declarations = true;
-        //     opts.visitor = visitor;
+        array_add(*opts.extra_clang_arguments, "-DWIN32_LEAN_AND_MEAN");
+    } else if OS == .MACOS {
+        output_filename = "macos/macos.jai";
     } else {
         assert(false, "TODO: need to add platform support");
     }
@@ -228,11 +205,12 @@ to_snake_case_upper :: ( value: string ) -> string {
 // clang-format off
 #if OS == .LINUX {
 FOOTER :: #string EOF
-libnographicsapi :: #library,no_dll "Release/lib64/libNoGraphicsAPI";
+#if DEBUG {
+    libnographicsapi :: #library,no_dll "Debug/lib64/libNoGraphicsAPI";
+} else {
+    libnographicsapi :: #library,no_dll "Release/lib64/libNoGraphicsAPI";
+}
 EOF
-FOOTER_DEBUG :: #string EOF
-libnographicsapi :: #library,no_dll "Debug/lib64/libNoGraphicsAPI";
-EOF;
 } else {
     assert(false, "TODO: need to add platform support");
 }
