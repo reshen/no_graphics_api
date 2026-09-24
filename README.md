@@ -42,5 +42,5 @@ At this time, only a linux example is working and it uses X11 via XCB (thanks to
 
 ## License
 
-This repository, NoGraphicsAPI, and NoGraphicsAPIUtility use the [MIT License](LICENSE).
+This repository, NoGraphicsAPI, NoGraphicsAPIUtility, and jai-on-linux use the [MIT License](LICENSE).
 Transitive dependencies use other licenses, see those dependencies for details.
