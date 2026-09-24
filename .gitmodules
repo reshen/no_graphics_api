@@ -1,3 +1,6 @@
 [submodule "NoGraphicsAPI"]
 	path = NoGraphicsAPI
 	url = git@github.com:reshen/NoGraphicsAPI.git
+[submodule "examples/jai-on-linux"]
+	path = examples/jai-on-linux
+	url = git@github.com:valignatev/jai-on-linux.git

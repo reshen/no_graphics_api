@@ -4,9 +4,33 @@ This repository contains Jai bindings for [Sebastian Aaltonen](https://github.co
 
 ## Usage
 
-Include this repository in your modules, run `jai generate`, which will both build the
-NoGraphicsAPI native library and generate jai bindings. This module contains a DEBUG
-parameter that can be used to switch between Debug and Release builds.
+Include this repository in your modules, make sure to update submodules so the
+NoGraphicsAPI repo is fetched, run `jai generate`, which will both build the
+NoGraphicsAPI native library and generate jai bindings. This module contains a
+DEBUG parameter that can be used to switch between Debug and Release builds.
+
+## Examples
+
+At this time, only a linux example is working and it uses X11 via XCB (thanks to [jai-on-linux](https://github.com/valignatev/jai-on-linux/tree/master)).
+
+1. Ensure your system has vulkan installed, see https://vulkan.lunarg.com/sdk/home
+2. Ensure your system has std c++ libraries installed, e.g., `libstdc++` on fedora
+3. Navigate into the `examples/` subdir, build the example using `jai build.jai`, then run it `./triangle`
+
+## Future improvements / TODO
+
+- Support wayland. This requires updates to NoGraphicsAPI (briefly discussed in [NoGraphicsAPI/issues/9](https://github.com/sebbbi/NoGraphicsAPI/issues/9))
+  and an example of our own built on jai wayland example in [jai-on-linux](https://github.com/valignatev/jai-on-linux/tree/master).
+- Support windows. This should be relatively easy, since jai's own create_window should
+  interop nicely with NoGraphicsAPI; we just need to provide a working example of that.
+- Add utilities to assist in compiling slang to spirv, we can likely reuse sgpu's [shader_compiler.jai](https://github.com/roeyb1/sgpu/blob/main/shader_compiler.jai)
+- There may be an opportunity to improve the ergonomics of using NoGraphicsAPI in jai, e.g.,
+  `Span`s feel a bit annoying to use - we ought to be able to automatically calculate size at compile time
+  and make the enclosed type (what you really care about) the thing you're immediately expressing. 
+  Maybe this is just as simple as a `convert_to_span` helper?
+- It'd be nice if NoGraphicsAPI provided an API to pass in/use custom allocators, i.e.,
+  enable jai memory debugging and get proper insights into runtime consumption
+
 
 ## Useful references
 
