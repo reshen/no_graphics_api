@@ -14,7 +14,7 @@ build :: () {
 
     build_options := init_options(workspace, optimization_type);
     build_options.output_executable_name = "triangle"; // Unpathed, does not include extension such as ".exe".
-    build_options.output_path = get_working_directory();
+    build_options.output_path = ".";
     build_options.output_type = .EXECUTABLE;
 
     // We must set the build options before adding any source.

@@ -78,7 +78,7 @@ build_no_graphics_api :: (build_type: string) -> bool {
         run_or_exit(build_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     } else #if OS == .WINDOWS {
         build_command: [..] string;
-        array_add(*build_command, "cmake", "--build", absolute_build_path, "--preset", "msvc-release");
+        array_add(*build_command, "cmake", "--build", "--preset", "msvc-release");
         run_or_exit(build_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     }
     print("Done building NoGraphicsAPI.\n");
@@ -115,14 +115,18 @@ generate_bindings :: () -> bool {
         array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib64"));
         array_add(*opts.libraries, Library.{filename="libvulkan"});
         array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
+
+        array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
+        array_add(*opts.source_files, path_join("linux", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
     } else #if OS == .WINDOWS {
         platform = "windows";
         array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib"));
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPI"});
+
+        array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
+        array_add(*opts.source_files, path_join("windows", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
     }
 
-    array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
-    array_add(*opts.source_files, path_join("linux", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
     array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20");
 
     opts.log_stripped_declarations = true;
