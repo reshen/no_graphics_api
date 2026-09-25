@@ -4,9 +4,9 @@ WIDTH :: 640;
 HEIGHT :: 480;
 
 main :: () {
-    assert(OS == .LINUX, "Only linux is supported at this time");
+    assert(OS == .LINUX, "This example requires linux");
 
-    connection, window, wm_delete_window_atom := open_x11_window();
+    connection, window, wm_delete_window_atom := open_x11_window("triangle no graphics api");
 
     COLOR_FORMAT :: Format.BGRA8_SRGB;
 
@@ -71,7 +71,7 @@ main :: () {
 
         if (latest_completion.value >= 2) {
             wait_timeline(.{
-                semaphore = latest_completion.semaphore, 
+                semaphore = latest_completion.semaphore,
                 value = latest_completion.value - 1
             });
         }
@@ -83,7 +83,7 @@ main :: () {
         frame := acquire(commands);
         if !frame.render_view  continue;
         colors := Span(ColorAttachment).{
-            data = *(ColorAttachment.{ 
+            data = *(ColorAttachment.{
                 render_view = frame.render_view,
                 load = LoadOp.CLEAR,
             }),
@@ -98,13 +98,13 @@ main :: () {
         end_commands(commands);
         latest_completion.value += 1;
         submit_and_present(device, SubmitDesc.{
-            commands = Span(*CommandBuffer).{*commands, 1}, 
+            commands = Span(*CommandBuffer).{*commands, 1},
             completion = latest_completion
         });
     }
 }
 
-open_x11_window :: () -> (connection: *xcb_connection_t, window: xcb_window_t, wm_delete_window_atom: xcb_atom_t) {
+open_x11_window :: (window_title: string) -> (connection: *xcb_connection_t, window: xcb_window_t, wm_delete_window_atom: xcb_atom_t) {
     #if !XCB_LINKED {
         load_procs(*xcb_procs, "libxcb.so");
     }
@@ -134,7 +134,6 @@ open_x11_window :: () -> (connection: *xcb_connection_t, window: xcb_window_t, w
         value_list=u32.[screen.black_pixel, xx xcb_event_mask_t.XCB_EVENT_MASK_KEY_PRESS].data,
     );
 
-    title: string = "xcb simp";
     xcb_change_property(
         connection,
         .XCB_PROP_MODE_REPLACE,
@@ -142,8 +141,8 @@ open_x11_window :: () -> (connection: *xcb_connection_t, window: xcb_window_t, w
         xx xcb_atom_enum_t.XCB_ATOM_WM_NAME,
         xx xcb_atom_enum_t.XCB_ATOM_STRING,
         8,
-        xx title.count,
-        xx title.data);
+        xx window_title.count,
+        xx window_title.data);
 
 
     wm_protocols := "WM_PROTOCOLS";
@@ -217,5 +216,5 @@ c_alloc :: (size: u64) -> *void #foreign libc "malloc";
     using xcb_image_procs: XCB_Image_Symbols;
 }
 
-NoGraphicsAPI :: #import,file "../module.jai"(DEBUG = true);
+NoGraphicsAPI :: #import,file "../module.jai"(DEBUG = false);
 using NoGraphicsAPI.gpu;

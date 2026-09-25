@@ -45,7 +45,7 @@ build_no_graphics_api :: (build_type: string) -> bool {
     make_directory_if_it_does_not_exist(BUILD_PATH, true);
     absolute_build_path := get_absolute_path(BUILD_PATH);
 
-    INSTALL_PATH := ifx OS == .LINUX then "linux" else "";
+    INSTALL_PATH := ifx OS == .LINUX then "linux" else ifx OS == .WINDOWS then "windows" else "";
     if INSTALL_PATH == "" assert(false, "OS not supported yet");
     INSTALL_PATH = path_join(INSTALL_PATH, build_type);
     make_directory_if_it_does_not_exist(INSTALL_PATH, true);
@@ -53,8 +53,8 @@ build_no_graphics_api :: (build_type: string) -> bool {
 
     print("NoGraphicsAPI build path %, install path: %\n", absolute_build_path, absolute_install_path);
 
-    {
-        print("Configuring NoGraphicsAPI build (% mode)...\n", build_type);
+    print("Configuring NoGraphicsAPI build (% mode)...\n", build_type);
+    #if OS == .LINUX {
         config_command: [..] string;
         array_add(*config_command,
             "cmake",
@@ -63,25 +63,37 @@ build_no_graphics_api :: (build_type: string) -> bool {
             tprint("-DCMAKE_BUILD_TYPE=%", build_type),
         );
         run_or_exit(config_command, working_directory = get_absolute_path("NoGraphicsAPI"));
-        print("Done configuring NoGraphicsAPI.\n");
+    } else #if OS == .WINDOWS {
+        config_command: [..] string;
+        array_add(*config_command, "cmake", "--preset", "msvc");
+        run_or_exit(config_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     }
+    print("Done configuring NoGraphicsAPI.\n");
 
-    {
-        print("Building NoGraphicsAPI (% mode)...\n", build_type);
+
+    print("Building NoGraphicsAPI (% mode)...\n", build_type);
+    #if OS == .LINUX {
         build_command: [..] string;
         array_add(*build_command, "cmake", "--build", absolute_build_path);
         run_or_exit(build_command, working_directory = get_absolute_path("NoGraphicsAPI"));
-        print("Done building NoGraphicsAPI.\n");
+    } else #if OS == .WINDOWS {
+        build_command: [..] string;
+        array_add(*build_command, "cmake", "--build", absolute_build_path, "--preset", "msvc-release");
+        run_or_exit(build_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     }
+    print("Done building NoGraphicsAPI.\n");
 
-    {
-        print("Installing NoGraphicsAPI (% mode)...\n", build_type);
-        // cmake --install build --prefix ./install/debug
+    print("Installing NoGraphicsAPI (% mode)...\n", build_type);
+    #if OS == .LINUX {
         install_command: [..] string;
         array_add(*install_command, "cmake", "--install", absolute_build_path, "--prefix", absolute_install_path);
         run_or_exit(install_command, working_directory = get_absolute_path("NoGraphicsAPI"));
-        print("Done installing NoGraphicsAPI.\n");
+    } else #if OS == .WINDOWS {
+        install_command: [..] string;
+        array_add(*install_command, "cmake", "--install", "build-msvc", "--config", "Release", "--prefix", absolute_install_path);
+        run_or_exit(install_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     }
+    print("Done installing NoGraphicsAPI.\n");
 
     return true;
 }
@@ -96,10 +108,20 @@ generate_bindings :: () -> bool {
     // It shouldn't matter if we use Debug or Release libs and headers for generating bindings from
     // since the binding interface (structs, functions, etc) are identical in either case
     build_type := "Release";
-    array_add(*opts.library_search_paths, path_join(get_absolute_path("linux"), build_type, "lib64"));
-    array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
-    array_add(*opts.libraries, Library.{filename="libvulkan"});
-    array_add(*opts.include_paths, path_join(get_absolute_path("linux"), build_type, "include"));
+
+    platform: string;
+    #if OS == .LINUX {
+        platform = "linux";
+        array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib64"));
+        array_add(*opts.libraries, Library.{filename="libvulkan"});
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
+    } else #if OS == .WINDOWS {
+        platform = "windows";
+        array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib"));
+        array_add(*opts.libraries, Library.{filename="NoGraphicsAPI"});
+    }
+
+    array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
     array_add(*opts.source_files, path_join("linux", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
     array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20");
 
@@ -209,6 +231,14 @@ FOOTER :: #string EOF
     libnographicsapi :: #library,no_dll "Debug/lib64/libNoGraphicsAPI";
 } else {
     libnographicsapi :: #library,no_dll "Release/lib64/libNoGraphicsAPI";
+}
+EOF
+} else #if OS == .WINDOWS {
+FOOTER :: #string EOF
+#if DEBUG {
+    nographicsapi :: #library,no_dll "Debug/lib/NoGraphicsAPI";
+} else {
+    nographicsapi :: #library,no_dll "Release/lib/NoGraphicsAPI";
 }
 EOF
 } else {
