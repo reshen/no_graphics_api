@@ -20,27 +20,16 @@ main :: () {
     device: *Device = device_init.device;
     print("created gpu device, name: %\n", to_string(get_device_caps(device).device_name));
 
-    vert_spirv, ok := read_entire_file("triangle.vert.spv");
+    vertex_spirv, ok := read_entire_file("triangle.vert.spv");
     assert(ok);
-    vertex_spirv := Span(u32).{
-        data = xx vert_spirv.data,
-        size = xx ( vert_spirv.count / 4 ),
-    };
 
-    frag_spirv:, ok = read_entire_file("triangle.frag.spv");
+    fragment_spirv:, ok = read_entire_file("triangle.frag.spv");
     assert(ok);
-    fragment_spirv := Span(u32).{
-        data = xx frag_spirv.data,
-        size = xx ( frag_spirv.count / 4 ),
-    };
 
     triangle_pso: *PSO = create_graphics_pso(device, GraphicsPSODesc.{
         vertex_spirv = vertex_spirv,
-        fragment_spirv = fragment_spirv, // Empty omits the fragment stage, for depth-only rasterization.
-        color_targets = Span(ColorTargetDesc).{
-            data = *(ColorTargetDesc.{ format = COLOR_FORMAT }),
-            size = 1,
-        },
+        fragment_spirv = fragment_spirv, 
+        color_targets = to_span(ColorTargetDesc.{ format = COLOR_FORMAT }),
     });
 
     latest_completion := TimelinePoint.{ semaphore = create_timeline_semaphore(device) };
@@ -73,19 +62,18 @@ main :: () {
 
         command_pool: *CommandPool = command_pools[latest_completion.value % 2];
         reset_command_pool(command_pool);
-        commands := begin_commands(command_pool);
+        commands: *CommandBuffer = begin_commands(command_pool);
 
         frame := acquire(commands);
         if !frame.render_view  continue;
-        colors := Span(ColorAttachment).{
-            data = *(ColorAttachment.{
-                render_view = frame.render_view,
-                load = LoadOp.CLEAR,
-            }),
-            size = 1,
-        };
 
-        begin_render_pass(commands, *(RenderingDesc.{ colors = colors, }));
+        begin_render_pass(commands, 
+            *(RenderingDesc.{ 
+                colors = to_span(ColorAttachment.{
+                    render_view = frame.render_view,
+                    load = LoadOp.CLEAR,
+                })
+            }));
         bind_pso(commands, triangle_pso);
         draw(commands, ByteSpan.{}, 3);
         end_render_pass(commands);
@@ -93,7 +81,7 @@ main :: () {
         end_commands(commands);
         latest_completion.value += 1;
         submit_and_present(device, SubmitDesc.{
-            commands = Span(*CommandBuffer).{*commands, 1},
+            commands = to_span(commands),
             completion = latest_completion
         });
     }

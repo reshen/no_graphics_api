@@ -31,10 +31,6 @@ Validated on Fedora 44 and Windows 11 using LunarG's VulkanSDK 1.4.357.0.
 - Support wayland. This requires updates to NoGraphicsAPI (briefly discussed in [NoGraphicsAPI/issues/9](https://github.com/sebbbi/NoGraphicsAPI/issues/9))
   and an example of our own built on jai wayland example in [jai-on-linux](https://github.com/valignatev/jai-on-linux/tree/master).
 - Add utilities to assist in compiling slang to spirv, we can likely reuse sgpu's [shader_compiler.jai](https://github.com/roeyb1/sgpu/blob/main/shader_compiler.jai)
-- There may be an opportunity to improve the ergonomics of using NoGraphicsAPI in jai, e.g.,
-  `Span`s feel a bit annoying to use - we ought to be able to automatically calculate size at compile time
-  and make the enclosed type (what you really care about) the thing you're immediately expressing. 
-  Maybe this is just as simple as a `to_span` helper?
 - It'd be nice if NoGraphicsAPI provided an API to pass in/use custom allocators, i.e.,
   enable jai memory debugging and get proper insights into runtime consumption
 
