@@ -1,12 +1,12 @@
 #module_parameters (DEBUG := false);
 
-read_entire_file :: (name: string, zero_terminated := false, log_errors := true) -> gpu.Span(u32), bool {
+read_entire_file :: (name: string, zero_terminated := false, log_errors := true) -> gpu.ByteSpan, bool {
     File :: #import "File";
     file, ok := File.read_entire_file(name, zero_terminated, log_errors);
 
     if !ok return .{}, ok;
 
-    return .{ data = xx file.data, size = xx ((file.count + 3) / 4) }, ok;
+    return .{ data = xx file.data, size = xx file.count }, ok;
 }
 
 array_to_span :: inline (a: [] $T) -> gpu.Span(T) {

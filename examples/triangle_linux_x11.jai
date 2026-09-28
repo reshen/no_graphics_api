@@ -27,8 +27,14 @@ main :: () {
     assert(ok);
 
     triangle_pso: *PSO = create_graphics_pso(device, GraphicsPSODesc.{
-        vertex_spirv = vertex_spirv,
-        fragment_spirv = fragment_spirv, 
+        vertex = ShaderStage.{
+            code = vertex_spirv,
+            entry_point = "vertexMain",
+        },
+        fragment = ShaderStage.{
+            code = fragment_spirv,
+            entry_point = "fragmentMain",
+        },
         color_targets = to_span(ColorTargetDesc.{ format = COLOR_FORMAT }),
     });
 
@@ -80,7 +86,7 @@ main :: () {
                 })
             }));
         bind_pso(commands, triangle_pso);
-        draw(commands, ByteSpan.{}, 3);
+        draw(commands, null, 3);
         end_render_pass(commands);
 
         end_commands(commands);
