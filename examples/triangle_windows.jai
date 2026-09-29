@@ -113,5 +113,4 @@ main :: () {
 #import "Input";
 #import "Windows";
 
-NoGraphicsAPI :: #import,file "../module.jai"(DEBUG = true);
-using NoGraphicsAPI.gpu;
+#import,file "../module.jai"(DEBUG = true);

@@ -1,6 +1,6 @@
 #module_parameters (DEBUG := false);
 
-read_entire_file :: (name: string, zero_terminated := false, log_errors := true) -> gpu.ByteSpan, bool {
+read_entire_file :: (name: string, zero_terminated := false, log_errors := true) -> ByteSpan, bool {
     File :: #import "File";
     file, ok := File.read_entire_file(name, zero_terminated, log_errors);
 
@@ -9,14 +9,14 @@ read_entire_file :: (name: string, zero_terminated := false, log_errors := true)
     return .{ data = xx file.data, size = xx file.count }, ok;
 }
 
-array_to_span :: inline (a: [] $T) -> gpu.Span(T) {
+array_to_span :: inline (a: [] $T) -> Span(T) {
     return .{
         data = a.data,
         size = xx a.count,
     };
 }
 
-to_span :: inline (s: $T) -> gpu.Span(T) {
+to_span :: inline (s: $T) -> Span(T) {
     // Is this too conservative?
     #assert(type_info(T).*.type == .STRUCT || 
             type_info(T).*.type == .POINTER);

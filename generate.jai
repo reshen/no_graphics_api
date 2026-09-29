@@ -129,6 +129,9 @@ generate_bindings :: () -> bool {
 
     array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20");
 
+    // get rid of the extra namespace, as jai lets the clients dictate what namespace they want
+    array_add(*opts.flatten_namespaces, "gpu");
+
     opts.log_stripped_declarations = true;
     opts.strip_flags = Strip_Flags.CONSTRUCTORS | Strip_Flags.DESTRUCTORS | Strip_Flags.INLINED_FUNCTIONS | Strip_Flags.FUNCTIONS_WITH_VALIST;
     opts.visitor = visitor;

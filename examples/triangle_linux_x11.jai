@@ -224,4 +224,3 @@ c_alloc :: (size: u64) -> *void #foreign libc "malloc";
 }
 
 #import,file "../module.jai"(DEBUG = true);
-using gpu;
