@@ -18,12 +18,15 @@ main :: () {
     });
     assert(device_init.error == .NONE, "err: %", device_init.error);
     device: *Device = device_init.device;
+    defer destroy_device(device);
     print("created gpu device, name: %\n", to_string(get_device_caps(device).device_name));
 
     vertex_spirv, ok := read_entire_file("triangle.vert.spv");
+    defer free(vertex_spirv.data);
     assert(ok);
 
     fragment_spirv:, ok = read_entire_file("triangle.frag.spv");
+    defer free(fragment_spirv.data);
     assert(ok);
 
     triangle_pso: *PSO = create_graphics_pso(device, GraphicsPSODesc.{
@@ -37,9 +40,17 @@ main :: () {
         },
         color_targets = to_span(ColorTargetDesc.{ format = COLOR_FORMAT }),
     });
+    defer destroy_pso(triangle_pso);
 
     latest_completion := TimelinePoint.{ semaphore = create_timeline_semaphore(device) };
+    defer destroy_timeline_semaphore(latest_completion.semaphore);
+
     command_pools: []*CommandPool = .[create_command_pool(device), create_command_pool(device)];
+    defer {
+        for command_pools {
+            destroy_command_pool(it);
+        }
+    }
 
     should_quit := false;
     key_press_event: *xcb_key_press_event_t;
@@ -96,6 +107,9 @@ main :: () {
             completion = latest_completion
         });
     }
+
+    // wait for gpu to go idle before we start freeing gpu-related resources
+    wait_idle(device);
 }
 
 open_x11_window :: (window_title: string) -> (connection: *xcb_connection_t, window: xcb_window_t, wm_delete_window_atom: xcb_atom_t) {
