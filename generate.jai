@@ -114,18 +114,33 @@ generate_bindings :: () -> bool {
         platform = "linux";
         array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib64"));
         array_add(*opts.libraries, Library.{filename="libvulkan"});
-        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
 
-        array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
-        array_add(*opts.source_files, path_join("linux", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPIUtility_allocators"});
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPIUtility_textures"});
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPIUtility_uploads"});
     } else #if OS == .WINDOWS {
         platform = "windows";
         array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib"));
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPI"});
-
-        array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
-        array_add(*opts.source_files, path_join("windows", build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
+        array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_allocators"});
+        array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_textures"});
+        array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_uploads"});
+    } else {
+        #assert(false, "OS not supported");
     }
+
+    array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "bump_allocator.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "delete_queue.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "fixed_function.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "heap_allocator.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "texture_allocator.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "texture_upload.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "bump_allocator.hpp"));
+    // array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "math.hpp"));
+    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "upload_queue.hpp"));
 
     array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20");
 
@@ -192,13 +207,38 @@ visitor :: ( decl: *Declaration, parent_decl: *Declaration ) -> Declaration_Visi
         }
     }
 
+    if parent_decl && parent_decl.name == "Entry" && decl.type && decl.name == "callback" {
+        // By default, the binding generator will produce an invalid default value for callback (shown below).
+        // Let's get rid of that.
+        //
+        //   Entry :: struct {
+        //       retire_value: u64;
+        //       callback:     FixedFunction(128) = 128;
+        //   }
+
+        decl.expression = null;
+    }
+
+    if parent_decl && parent_decl.name == "HeapAllocator" && decl.type && decl.name == "maximum_size" {
+        // generator doesn't handle the following bit of c++ well, so we just correct the value
+        //
+        //    static constexpr uint64 alignment = 16;
+        //    static constexpr uint64 maximum_size = uint64{0xffffffffu} * alignment;
+
+        literal := New(Literal);
+        literal.literal_kind = .UNSIGNED_INTEGER;
+        literal.raw_value = tprint("%", 0xffffffff * 16);
+        decl.expression = literal;
+        decl.foreign_name = "";
+    }
+
     for d: DECLARATIONS_TO_RENAME {
         original_name := d[0];
         updated_name := d[1];
         if original_name == decl.name {
             decl.output_name = updated_name;
             // decl.decl_flags = .OMIT_FROM_OUTPUT;
-            log("renamed % -> %", decl.name, decl.output_name);
+            // log("renamed % -> %", decl.name, decl.output_name);
         }
     }
 
@@ -236,16 +276,28 @@ to_snake_case_upper :: ( value: string ) -> string {
 FOOTER :: #string EOF
 #if DEBUG {
     libnographicsapi :: #library,no_dll "Debug/lib64/libNoGraphicsAPI";
+    libnographicsapiutility_uploads :: #library,no_dll "Debug/lib64/libNoGraphicsAPIUtility_uploads";
+    libnographicsapiutility_allocators :: #library,no_dll "Debug/lib64/libNoGraphicsAPIUtility_allocators";
+    libnographicsapiutility_textures :: #library,no_dll "Debug/lib64/libNoGraphicsAPIUtility_textures";
 } else {
     libnographicsapi :: #library,no_dll "Release/lib64/libNoGraphicsAPI";
+    libnographicsapiutility_uploads :: #library,no_dll "Release/lib64/libNoGraphicsAPIUtility_uploads";
+    libnographicsapiutility_allocators :: #library,no_dll "Release/lib64/libNoGraphicsAPIUtility_allocators";
+    libnographicsapiutility_textures :: #library,no_dll "Release/lib64/libNoGraphicsAPIUtility_textures";
 }
 EOF
 } else #if OS == .WINDOWS {
 FOOTER :: #string EOF
 #if DEBUG {
     nographicsapi :: #library,no_dll "Debug/lib/NoGraphicsAPI";
+    nographicsapiutility_uploads :: #library,no_dll "Debug/lib/NoGraphicsAPIUtility_uploads";
+    nographicsapiutility_allocators :: #library,no_dll "Debug/lib/NoGraphicsAPIUtility_allocators";
+    nographicsapiutility_textures :: #library,no_dll "Debug/lib/NoGraphicsAPIUtility_textures";
 } else {
     nographicsapi :: #library,no_dll "Release/lib/NoGraphicsAPI";
+    nographicsapiutility_uploads :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_uploads";
+    nographicsapiutility_allocators :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_allocators";
+    nographicsapiutility_textures :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_textures";
 }
 EOF
 } else {
