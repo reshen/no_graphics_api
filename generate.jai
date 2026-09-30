@@ -11,6 +11,8 @@ DECLARATIONS_TO_RENAME :: [2] string.[
     .[ "uint16", "u16" ],
     .[ "int32", "s32" ],
     .[ "uint32", "u32" ],
+    .[ "uint32x2", "u32x2" ],
+    .[ "uint32x3", "u32x3" ],
     .[ "int64", "s64" ],
     .[ "uint64", "u64" ],
     .[ "uintptr", "u64" ],
