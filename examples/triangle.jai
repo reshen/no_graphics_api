@@ -330,7 +330,6 @@ main :: () {
             NSWindow.center(window);
         }
 
-        print("drawable: %\n", CAMetalLayer.drawableSize(metal_layer));
         CAMetalLayer.setDrawableSize(metal_layer, .{xx width, xx height});
 
         // return window;
