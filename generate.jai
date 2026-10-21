@@ -96,7 +96,7 @@ build_no_graphics_api :: (build_type: string) -> bool {
         run_or_exit(build_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     } else #if OS == .WINDOWS {
         build_command: [..] string;
-        array_add(*build_command, "cmake", "--build", "--preset", "msvc-release");
+        array_add(*build_command, "cmake", "--build", "--preset", tprint("msvc-%", to_lower_copy(build_type)));
         run_or_exit(build_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     }
     print("Done building NoGraphicsAPI.\n");
@@ -106,16 +106,21 @@ build_no_graphics_api :: (build_type: string) -> bool {
         install_command: [..] string;
         array_add(*install_command, "cmake", "--install", absolute_build_path, "--config", build_type, "--prefix", absolute_install_path);
         run_or_exit(install_command, working_directory = get_absolute_path("NoGraphicsAPI"));
-    } else #if OS == .WINDOWS {
-        install_command: [..] string;
-        array_add(*install_command, "cmake", "--install", "build-msvc", "--config", build_type, "--prefix", absolute_install_path);
-        run_or_exit(install_command, working_directory = get_absolute_path("NoGraphicsAPI"));
-    }
 
-    // clean up cmake dirs, we don't need them
-    LIB_DIR := ifx OS == .LINUX then "lib64" else "lib";
-    result := run_command("rm", "-vrf", tprint("%/%/cmake", INSTALL_PATH, LIB_DIR, build_type), capture_and_return_output = false, print_captured_output = LIVE_OUTPUT);
-    assert(result.exit_code == 0);
+        // clean up cmake dirs, we don't need them
+        LIB_DIR := ifx OS == .LINUX then "lib64" else "lib";
+        result := run_command("rm", "-vrf", tprint("%/%/cmake", INSTALL_PATH, LIB_DIR, build_type), capture_and_return_output = false, print_captured_output = LIVE_OUTPUT);
+        assert(result.exit_code == 0);
+    } else #if OS == .WINDOWS {
+        source_dir_prefixes :: string.["NoGraphicsAPI/build-msvc", "NoGraphicsAPI/build-msvc/utility"];
+        for source_dir_prefixes {
+            src := tprint("%/%", it, build_type);
+            dest := tprint("windows/%", build_type);
+            // print("install windows libraries from % to %\n", src, dest);
+            ok := copy_directory(src, dest,);
+            assert(ok, "Unable to install windows libraries from % to %", src, dest);
+        }
+    }
 
     print("Done installing NoGraphicsAPI.\n");
 
@@ -146,7 +151,7 @@ generate_bindings :: () -> bool {
         array_add(*opts.libraries, Library.{filename="libNoGraphicsAPIUtility_uploads"});
     } else #if OS == .WINDOWS {
         platform = "windows";
-        array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib"));
+        array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type));
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPI"});
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_allocators"});
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_textures"});
@@ -174,19 +179,24 @@ generate_bindings :: () -> bool {
         #assert(false, "OS not supported");
     }
 
-    array_add(*opts.include_paths, path_join(get_absolute_path(platform), build_type, "include"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "bump_allocator.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "delete_queue.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "fixed_function.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "heap_allocator.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "texture_allocator.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "texture_upload.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "bump_allocator.hpp"));
-    // array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "math.hpp"));
-    array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "upload_queue.hpp"));
+    main_lib_include_dir := path_join("NoGraphicsAPI", "include");
+    utility_libs_include_dir := path_join("NoGraphicsAPI", "utility", "include");
+    array_add(*opts.include_paths, main_lib_include_dir, utility_libs_include_dir);
+    array_add(*opts.source_files, path_join(main_lib_include_dir, "NoGraphicsAPI", "NoGraphicsAPI.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "bump_allocator.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "delete_queue.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "fixed_function.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "heap_allocator.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "texture_allocator.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "texture_upload.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "bump_allocator.hpp"));
+    // array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "math.hpp"));
+    array_add(*opts.source_files, path_join(utility_libs_include_dir, "NoGraphicsAPIUtility", "upload_queue.hpp"));
 
-    array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20", "-fPIC");
+    array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20");
+    #if OS == .LINUX || OS == .MACOS{
+        array_add(*opts.extra_clang_arguments, "-fPIC");
+    }
 
     // get rid of the extra namespace, as jai lets the clients dictate what namespace they want
     array_add(*opts.flatten_namespaces, "gpu");
@@ -365,15 +375,15 @@ EOF
 } else #if OS == .WINDOWS {
 FOOTER :: #string EOF
 #if DEBUG {
-    nographicsapi :: #library,no_dll "Debug/lib/NoGraphicsAPI";
-    nographicsapiutility_uploads :: #library,no_dll "Debug/lib/NoGraphicsAPIUtility_uploads";
-    nographicsapiutility_allocators :: #library,no_dll "Debug/lib/NoGraphicsAPIUtility_allocators";
-    nographicsapiutility_textures :: #library,no_dll "Debug/lib/NoGraphicsAPIUtility_textures";
+    nographicsapi :: #library,no_dll "Debug/NoGraphicsAPI";
+    nographicsapiutility_uploads :: #library,no_dll "Debug/NoGraphicsAPIUtility_uploads";
+    nographicsapiutility_allocators :: #library,no_dll "Debug/NoGraphicsAPIUtility_allocators";
+    nographicsapiutility_textures :: #library,no_dll "Debug/NoGraphicsAPIUtility_textures";
 } else {
-    nographicsapi :: #library,no_dll "Release/lib/NoGraphicsAPI";
-    nographicsapiutility_uploads :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_uploads";
-    nographicsapiutility_allocators :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_allocators";
-    nographicsapiutility_textures :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_textures";
+    nographicsapi :: #library,no_dll "Release/NoGraphicsAPI";
+    nographicsapiutility_uploads :: #library,no_dll "Release/NoGraphicsAPIUtility_uploads";
+    nographicsapiutility_allocators :: #library,no_dll "Release/NoGraphicsAPIUtility_allocators";
+    nographicsapiutility_textures :: #library,no_dll "Release/NoGraphicsAPIUtility_textures";
 }
 EOF
 } else #if OS == .MACOS {

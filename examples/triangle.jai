@@ -348,7 +348,11 @@ main :: () {
     #import "Objective_C";
     #import "Objective_C/AppKit";
     #import "Metal";
-} else { assert(false, "Unsupported OS"); }
+} else #if OS == .WINDOWS {
+    #import "Windows";
+} else { 
+    assert(false, "Unsupported OS");
+}
 
 #import "Basic"()(MEMORY_DEBUGGER = true, ENABLE_ASSERT = true);
 #import "String";

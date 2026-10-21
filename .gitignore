@@ -1,6 +1,4 @@
 .build
-/linux
-/windows
 *.exe
 *.dSYM/
 /examples/triangle
