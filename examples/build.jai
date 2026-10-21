@@ -34,13 +34,7 @@ build :: () {
     // before we add any code to the target workspace.
     compiler_begin_intercept(workspace);
 
-    #if OS == .LINUX {
-        add_build_file("triangle_linux_x11.jai", workspace);
-    } else #if OS == .WINDOWS {
-        add_build_file("triangle_windows.jai", workspace);
-    } else {
-        assert(false, "Unsupported OS");
-    }
+    add_build_file("triangle.jai", workspace);
 
     // listen in on compiler messages
     while true {
@@ -55,6 +49,8 @@ build :: () {
 
     compiler_end_intercept(workspace);
 
+    build_shaders();
+
     if autorun {
         // The VK_LAYER_LUNARG_monitor utility layer displays the real-time frame rate in frames-per-second in the
         // application's title bar. It is only compatible with the Win32 and XCB windowing systems and will not display
@@ -64,11 +60,52 @@ build :: () {
             POSIX.setenv("VK_INSTANCE_LAYERS", "VK_LAYER_LUNARG_monitor", 0);
         } else #if OS == .WINDOWS {
             SetEnvironmentVariableA("VK_INSTANCE_LAYERS", "VK_LAYER_LUNARG_monitor");
-        } else {
-            assert(false, "Unsupported OS");
         }
 
         run_build_result_of_workspace(workspace);
+    }
+}
+
+build_shaders :: () {
+    SHADER_NAMING :: struct {
+        ext_name: string;
+        stage_name: string;
+        entry_point: string;
+    };
+
+    shaders :: SHADER_NAMING.[
+        .{"frag", "fragment", "fragmentMain"},
+        .{"vert", "vertex", "vertexMain"},
+    ];
+
+    for shaders {
+        using it;
+
+        process_result: Process_Result;
+
+        #if OS == .LINUX || OS == .WINDOWS {
+            cmd := tprint("slangc triangle.slang -target spirv -profile spirv_1_5 -emit-spirv-directly -fvk-use-entrypoint-name -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -capability spvDescriptorHeapEXT -o triangle.%.spv", entry_point, stage_name, ext_name);
+            process_result = run_command(..split(cmd, " "));
+            assert(process_result.exit_code == 0);
+
+            cmd = tprint("spirv-val --target-env vulkan1.4 --scalar-block-layout triangle.%.spv", ext_name);
+            process_result = run_command(..split(cmd, " "));
+            assert(process_result.exit_code == 0);
+        } else #if OS == .MACOS {
+            cmd := tprint("slangc triangle.slang -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -target metal -DNOGRAPHICSAPI_METAL -o triangle.%.metal", entry_point, stage_name, ext_name);
+            process_result = run_command(..split(cmd, " "));
+            assert(process_result.exit_code == 0);
+
+            cmd = tprint("xcrun -sdk macosx metal -std=metal4.0 -c triangle.%.metal -o triangle.%.air", ext_name, ext_name);
+            process_result = run_command(..split(cmd, " "));
+            assert(process_result.exit_code == 0);
+
+            cmd = tprint("xcrun -sdk macosx metallib triangle.%.air -o triangle.%.metallib", ext_name, ext_name);
+            process_result = run_command(..split(cmd, " "));
+            assert(process_result.exit_code == 0);
+        } else { 
+            assert(false, "Unsupported OS");
+        }
     }
 }
 
@@ -80,19 +117,17 @@ init_options :: (workspace: Workspace, optimization_type: Optimization_Type) -> 
 
     set_optimization(*build_options, optimization_type);
 
-    build_options.backend = .X64;
     build_options.arithmetic_overflow_check = .FATAL;
 
     #if OS == .LINUX {
         // linking against stdc++ for new/delete as those are transitive deps of NoGraphicsAPI
         // TODO: It'd be nice if we could update the library to enable custom allocators
+        // TODO do we need stdc++, can't we just bake that into the module.jai?
         build_options.additional_linker_arguments = .["-lvulkan", "-lstdc++"];
     } else #if OS == .WINDOWS {
         vk_sdk_path := getVulkanSDKPath();
         // print("Vulkan SDK path: \"%\"\n", vk_sdk_path);
         build_options.additional_linker_arguments = .[tprint("/libpath:\"%/Lib\"", vk_sdk_path), "vulkan-1.lib"];
-    } else {
-        assert(false, "Unsupported OS");
     }
 
     return build_options;
@@ -136,3 +171,4 @@ add_linker_args :: (build_options: *Build_Options, args: [] string) {
 }
 #import "Metaprogram_Plugins";
 #import "Autorun";
+#import "Process";

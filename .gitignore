@@ -1,5 +1,8 @@
 .build
 /linux
 /windows
+*.exe
+*.dSYM/
 /examples/triangle
-/examples/triangle.exe
+/examples/*.frag.*
+/examples/*.vert.*

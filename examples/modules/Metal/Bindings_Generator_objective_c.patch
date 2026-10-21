@@ -1,0 +1,139 @@
+diff --git forkSrcPrefix/modules/Bindings_Generator/module.jai forkDstPrefix/modules/Bindings_Generator/module.jai
+index 8e408ddcfc6e17e683ba9e93461256a45b4d4c10..d5fc10d293ec8e878d47bd25834d84d51855eded 100644
+--- forkSrcPrefix/modules/Bindings_Generator/module.jai
++++ forkDstPrefix/modules/Bindings_Generator/module.jai
+@@ -3015,7 +3015,13 @@ create_function_type :: (cur: CXCursor, ty: CXType, func: *Function = null, curs
+         }
+     }
+ 
+-    clang_return_type := clang_getResultType(ty);
++    clang_return_type: CXType;
++    if ty.kind == .Invalid {
++        // For ObjC methods with Invalid cursor type, use clang_getCursorResultType instead
++        clang_return_type = clang_getCursorResultType(cur);
++    } else {
++        clang_return_type = clang_getResultType(ty);
++    }
+     type.return_type = create_type(clang_return_type, cur, cursor_is_accurate, loc=loc);
+     if !type.return_type {
+         if context.generator_options.log_unsupported log_error(cur, "Somehow we did not get a return type. Should be of type %.", clang_return_type.kind);
+@@ -3319,7 +3325,16 @@ print_function_type_to_builder :: (builder: *String_Builder, type: *Function_Typ
+         type.return_type = create_pointer_to(type.return_type);
+     }
+ 
++
+     for foreign_func_args {
++        if it_index == 0 && type.flags & .OBJC_CLASS_METHOD {
++            assert(it.name == "class");
++            // Skip the "Class" argument for Objective-C class methods.
++            // The generated code will lookup the class by name automatically, and the user
++            // doesn't need to specify it. See @ObjCClassMethods
++            continue;
++        }
++
+         print_arg_flags := default_print_arg_flags;
+         if it.decl_flags & .POINTER_TO_VALUE {
+             print_arg_flags |= .NO_ARGUMENT_DEFAULTS;
+@@ -3343,7 +3358,6 @@ print_function_type_to_builder :: (builder: *String_Builder, type: *Function_Typ
+     append_calling_convention_directives(builder, type, assume_foreign = assume_foreign);
+ }
+ 
+-
+ append_parent_path :: (builder: *String_Builder, decl: *Declaration, current_scope: *Declaration, location: Location, separator := ".") {
+     if !decl                    return;
+     if decl == current_scope    return;
+@@ -4133,7 +4147,23 @@ create_function :: (cur: CXCursor, parent: CXCursor) -> *Function {
+         }
+     }
+ 
+-    type := create_function_type(cur, clang_getCursorType(cur), func);
++    cursor_type := clang_getCursorType(cur);
++    if cursor_type.kind == .Invalid {
++        // For ObjC methods, libclang often returns Invalid for the cursor type.
++        // Try using clang_getCursorResultType instead.
++        if kind == .ObjCInstanceMethodDecl || kind == .ObjCClassMethodDecl {
++            result_type := clang_getCursorResultType(cur);
++            if result_type.kind == .Invalid {
++                if context.generator_options.log_unsupported log_error(cur, "Skipping ObjC method with Invalid result type: %", as_str(cur));
++                return null;
++            }
++            // Proceed with a synthesized "Invalid" type but let create_function_type handle it
++        } else {
++            if context.generator_options.log_unsupported log_error(cur, "Skipping function with Invalid cursor type: %", as_str(cur));
++            return null;
++        }
++    }
++    type := create_function_type(cur, cursor_type, func);
+     if !type {
+         return null;
+     }
+@@ -6582,14 +6612,22 @@ print_function :: (builder: *String_Builder, func: *Function, current_scope: *De
+         context.generator.tab_depth += 1;
+         append_indentation(builder);
+ 
+-        print_to_builder(builder, "SEL_% :: () #foreign libobjc \":%\";\n", foreign_declaration_name, func.foreign_name);
++        if type.flags & .OBJC_CLASS_METHOD {
++            // @ObjCClassMethods
++            print_to_builder(builder, "class := objc_getClass(\"%\");\n", current_scope.name);
++            append_indentation(builder);
++        }
++
++        // Use sel_registerName to get the selector at runtime
++        // TODO: generate selectors struct
++        print_to_builder(builder, "sel := sel_registerName(\"%\");\n", func.foreign_name);
+         append_indentation(builder);
+         append(builder, "return xx (cast((");
+         if type.arguments[0].type.pointer_to {
+             type.arguments[0].type.pointer_to.hardcoded_jai_string = ""; // This should be saved and restored...
+         }
+         print_type_to_builder(builder, type.arguments[0].type, current_scope, Print_Decl_Flags.NO_SEMICOLON | .NO_INDENT | .IN_FUNCTION_ARGS);
+-        append(builder, ", *Selector");
++        append(builder, ", Selector");
+         for type.arguments {
+             if it_index == 0 continue; // Skip the class or instance because that comes before the selector.
+             append(builder, ", ");
+@@ -6605,14 +6643,17 @@ print_function :: (builder: *String_Builder, func: *Function, current_scope: *De
+             log("Somehow we did not get a return type for %??\n", foreign_declaration_name);
+         } else {
+             underlying_return_type := strip_type(type.return_type, typedefs = true);
+-            if underlying_return_type.type_of_struct {
+-                msg_send = "objc_msgSend_stret";
+-            } else if underlying_return_type.number_flags & .FLOAT {
+-                msg_send = "objc_msgSend_fpret";
++            // objc_msgSend_stret and objc_msgSend_fpret are only needed on x86/x64, not ARM64
++            if context.generator_options.cpu == .X64 {
++                if underlying_return_type.type_of_struct {
++                    msg_send = "objc_msgSend_stret";
++                } else if underlying_return_type.number_flags & .FLOAT {
++                    msg_send = "objc_msgSend_fpret";
++                }
+             }
+             print_type_to_builder(builder, type.return_type, current_scope, .IN_FUNCTION_RETURN);
+         }
+-        print_to_builder(builder, " #c_call)%)(%, xx (.*)cast(**void)SEL_%", msg_send, type.arguments[0].output_name, foreign_declaration_name);
++        print_to_builder(builder, " #c_call)%)(%, sel", msg_send, type.arguments[0].output_name);
+         for type.arguments {
+             if it_index == 0 continue; // Skip the class or instance because that comes before the selector.
+             print_to_builder(builder, ", %", it.output_name);
+@@ -8309,7 +8350,13 @@ find_or_create_extra_info :: (type: *CType, base_struct: *Declaration) -> *Struc
+             }
+         }
+ 
++        should_include_parent :: (_struct: *Struct, parent: *Declaration) -> bool {
++            if parent.decl_flags & .OMIT_FROM_OUTPUT return false;
++            return true;
++        }
++
+         for _struct.parents {
++            if !should_include_parent(_struct, it) continue;
+             parent_info, parent_struct := find_or_create_extra_info(it.type, base_struct);
+             if should_pull_forward(*new_info, parent_info, parent_struct) {
+                 next_field_byte_offset = create_declarations_for_parent(new_decls, _struct, *new_info, it, parent_info, parent_struct, next_field_byte_offset, first);
+@@ -8318,6 +8365,7 @@ find_or_create_extra_info :: (type: *CType, base_struct: *Declaration) -> *Struc
+         }
+         // Then do the remaining parents
+         for _struct.parents {
++            if !should_include_parent(_struct, it) continue;
+             parent_info, parent_struct := find_or_create_extra_info(it.type, base_struct);
+             if !should_pull_forward(*new_info, parent_info, parent_struct) {
+                 next_field_byte_offset = create_declarations_for_parent(new_decls, _struct, *new_info, it, parent_info, parent_struct, next_field_byte_offset, first);

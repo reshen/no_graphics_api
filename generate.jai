@@ -1,7 +1,11 @@
 #import "String";
 
 LIVE_OUTPUT :: true;
-DECLARATIONS_TO_OMIT :: string.[];
+
+DECLARATIONS_TO_OMIT :: string.[
+    "set_error_callback",
+    "ErrorCallback",
+];
 
 DECLARATIONS_TO_RENAME :: [2] string.[
     .[ "byte", "u8" ],
@@ -41,13 +45,15 @@ build :: () {
 }
 
 build_no_graphics_api :: (build_type: string) -> bool {
+    print("\n------------- building libraries -------------\n\n");
+
     assert(build_type == "Debug" || build_type == "Release");
 
     BUILD_PATH := "NoGraphicsAPI/build";
     make_directory_if_it_does_not_exist(BUILD_PATH, true);
     absolute_build_path := get_absolute_path(BUILD_PATH);
 
-    INSTALL_PATH := ifx OS == .LINUX then "linux" else ifx OS == .WINDOWS then "windows" else "";
+    INSTALL_PATH := ifx OS == .LINUX then "linux" else ifx OS == .WINDOWS then "windows" else ifx OS == .MACOS then "macos" else "";
     if INSTALL_PATH == "" assert(false, "OS not supported yet");
     INSTALL_PATH = path_join(INSTALL_PATH, build_type);
     make_directory_if_it_does_not_exist(INSTALL_PATH, true);
@@ -69,12 +75,22 @@ build_no_graphics_api :: (build_type: string) -> bool {
         config_command: [..] string;
         array_add(*config_command, "cmake", "--preset", "msvc");
         run_or_exit(config_command, working_directory = get_absolute_path("NoGraphicsAPI"));
+    } else #if OS == .MACOS {
+        config_command: [..] string;
+        array_add(*config_command,
+            "cmake",
+            "--fresh",
+            "-B", absolute_build_path,
+            tprint("-DCMAKE_BUILD_TYPE=%", build_type),
+            "-DCMAKE_OSX_SYSROOT=macosx",
+        );
+        run_or_exit(config_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     }
     print("Done configuring NoGraphicsAPI.\n");
 
 
     print("Building NoGraphicsAPI (% mode)...\n", build_type);
-    #if OS == .LINUX {
+    #if OS == .LINUX || OS == .MACOS {
         build_command: [..] string;
         array_add(*build_command, "cmake", "--build", absolute_build_path);
         run_or_exit(build_command, working_directory = get_absolute_path("NoGraphicsAPI"));
@@ -86,21 +102,28 @@ build_no_graphics_api :: (build_type: string) -> bool {
     print("Done building NoGraphicsAPI.\n");
 
     print("Installing NoGraphicsAPI (% mode)...\n", build_type);
-    #if OS == .LINUX {
+    #if OS == .LINUX || OS == .MACOS {
         install_command: [..] string;
-        array_add(*install_command, "cmake", "--install", absolute_build_path, "--prefix", absolute_install_path);
+        array_add(*install_command, "cmake", "--install", absolute_build_path, "--config", build_type, "--prefix", absolute_install_path);
         run_or_exit(install_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     } else #if OS == .WINDOWS {
         install_command: [..] string;
-        array_add(*install_command, "cmake", "--install", "build-msvc", "--config", "Release", "--prefix", absolute_install_path);
+        array_add(*install_command, "cmake", "--install", "build-msvc", "--config", build_type, "--prefix", absolute_install_path);
         run_or_exit(install_command, working_directory = get_absolute_path("NoGraphicsAPI"));
     }
+
+    // clean up cmake dirs, we don't need them
+    LIB_DIR := ifx OS == .LINUX then "lib64" else "lib";
+    result := run_command("rm", "-vrf", tprint("%/%/cmake", INSTALL_PATH, LIB_DIR, build_type), capture_and_return_output = false, print_captured_output = LIVE_OUTPUT);
+    assert(result.exit_code == 0);
+
     print("Done installing NoGraphicsAPI.\n");
 
     return true;
 }
 
 generate_bindings :: () -> bool {
+    print("\n------------- generating bindings -------------\n\n");
     opts: Generate_Bindings_Options;
 
     opts.footer = FOOTER;
@@ -128,6 +151,25 @@ generate_bindings :: () -> bool {
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_allocators"});
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_textures"});
         array_add(*opts.libraries, Library.{filename="NoGraphicsAPIUtility_uploads"});
+    } else #if OS == .MACOS {
+        //
+        // IMPORTANT NOTE: 
+        //
+        // In order for the static library symbols to resolve, you need to modify jai's Bindings_Generator/module.jai.
+        // Update Bindings_Generator/module.jai's behavior for static libraries in the `os_load_library` function,
+        // replacing `os_get_symbol_names_from_file_fixed_and_cached` with `os_get_symbol_names_from_file`.  
+        // In jai beta 2-030, that's line 8773. Thanks to @vik in discord for this fix.
+        //
+        platform = "macos";
+        array_add(*opts.library_search_paths, path_join(get_absolute_path(platform), build_type, "lib"));
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPI"});
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPIUtility_allocators"});
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPIUtility_textures"});
+        array_add(*opts.libraries, Library.{filename="libNoGraphicsAPIUtility_uploads"});
+
+        // This fixes "NoGraphicsAPI/span.hpp:6:10: fatal error: 'initializer_list' file not found"
+        array_add(*opts.include_paths, find_first_clang_cpp_include_path());
+        array_add(*opts.system_types_to_include, "initializer_list");
     } else {
         #assert(false, "OS not supported");
     }
@@ -144,12 +186,14 @@ generate_bindings :: () -> bool {
     // array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "math.hpp"));
     array_add(*opts.source_files, path_join(platform, build_type, "include", "NoGraphicsAPIUtility", "upload_queue.hpp"));
 
-    array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20");
+    array_add(*opts.extra_clang_arguments, "-x", "c++", "-std=c++20", "-fPIC");
 
     // get rid of the extra namespace, as jai lets the clients dictate what namespace they want
     array_add(*opts.flatten_namespaces, "gpu");
 
     opts.log_stripped_declarations = true;
+    // NOTE: intentionally excluded Strip_Flags.SYMBOLS_WITH_UNKNOWN_FOREIGN_LIBS since that's how we can tell what the
+    // actual symbol name is when looking at the generated bindings jai file
     opts.strip_flags = Strip_Flags.CONSTRUCTORS | Strip_Flags.DESTRUCTORS | Strip_Flags.INLINED_FUNCTIONS | Strip_Flags.FUNCTIONS_WITH_VALIST;
     opts.visitor = visitor;
 
@@ -196,7 +240,7 @@ run_or_exit :: (command: [] string, working_directory: string) {
 }
 
 visitor :: ( decl: *Declaration, parent_decl: *Declaration ) -> Declaration_Visit_Result {
-    if !parent_decl && array_find( DECLARATIONS_TO_OMIT, decl.name ) {
+    if array_find(DECLARATIONS_TO_OMIT, decl.name) {
         log("omitting blacklisted declaration: %", decl.name);
         decl.decl_flags |= .OMIT_FROM_OUTPUT;
         return .STOP;
@@ -273,6 +317,36 @@ to_snake_case_upper :: ( value: string ) -> string {
     return result;
 }
 
+// this is such a hack
+find_first_clang_cpp_include_path :: () -> string {
+    // here's the relevant portion of the clang command's output that we're looking for from my system. We want
+    // to return something like: /opt/homebrew/Cellar/llvm/23.1.3_2/bin/../include/c++/v1
+    //
+    //   #include <...> search starts here:
+    //    /opt/homebrew/Cellar/llvm/23.1.3_2/bin/../include/c++/v1
+    //    /opt/homebrew/Cellar/llvm/23.1.3_2/lib/clang/23/include
+    //    /Library/Developer/CommandLineTools/SDKs/MacOSX27.sdk/usr/include
+    //    /Library/Developer/CommandLineTools/SDKs/MacOSX27.sdk/System/Library/Frameworks (framework directory)
+    //    /Library/Developer/CommandLineTools/SDKs/MacOSX27.sdk/System/Library/SubFrameworks (framework directory)
+    //   End of search list.
+    //
+
+    process_result, output_string, error_string := run_command(..split("clang++ -E -x c++ -v /dev/null", " "), capture_and_return_output = true, print_captured_output = false);
+    assert(process_result.exit_code == 0);
+
+    lines := split(error_string, "\n");
+    include_dir: string;
+    for lines {
+        if it == "#include <...> search starts here:" && it_index + 1 < lines.count {
+            include_dir = trim(lines[it_index + 1]);
+            break;
+        }
+    }
+    assert(include_dir.count > 0);
+
+    return include_dir;
+}
+
 // clang-format off
 #if OS == .LINUX {
 FOOTER :: #string EOF
@@ -301,6 +375,21 @@ FOOTER :: #string EOF
     nographicsapiutility_allocators :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_allocators";
     nographicsapiutility_textures :: #library,no_dll "Release/lib/NoGraphicsAPIUtility_textures";
 }
+EOF
+} else #if OS == .MACOS {
+FOOTER :: #string EOF
+#if DEBUG {
+    libnographicsapi :: #library,no_dll "Debug/lib/libNoGraphicsAPI";
+    libnographicsapiutility_uploads :: #library,no_dll "Debug/lib/libNoGraphicsAPIUtility_uploads";
+    libnographicsapiutility_allocators :: #library,no_dll "Debug/lib/libNoGraphicsAPIUtility_allocators";
+    libnographicsapiutility_textures :: #library,no_dll "Debug/lib/libNoGraphicsAPIUtility_textures";
+} else {
+    libnographicsapi :: #library,no_dll "Release/lib/libNoGraphicsAPI";
+    libnographicsapiutility_uploads :: #library,no_dll "Release/lib/libNoGraphicsAPIUtility_uploads";
+    libnographicsapiutility_allocators :: #library,no_dll "Release/lib/libNoGraphicsAPIUtility_allocators";
+    libnographicsapiutility_textures :: #library,no_dll "Release/lib/libNoGraphicsAPIUtility_textures";
+}
+libcxx :: #library,system,link_always "libc++";
 EOF
 } else {
     assert(false, "TODO: need to add platform support");
