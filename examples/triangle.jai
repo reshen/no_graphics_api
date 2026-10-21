@@ -15,9 +15,9 @@ main :: () {
         fragment_shader_file = "triangle.frag.spv";
 
         // create platform window
-        connection, window := open_x11_window("triangle no graphics api");
+        connection, window, wm_delete_window_atom := open_x11_window("triangle no graphics api");
         assert(connection != null);
-        assert(window != null);
+        assert(window != 0);
 
         device_desc = .{
             window = cast(*void) window,  // HWND on Windows; CAMetalLayer* on macOS/iOS. xcb_window_t cast to void* on Linux. Null creates a headless device.
@@ -107,7 +107,7 @@ main :: () {
                     }
 
                     case XCB_KEY_PRESS;
-                    key_press_event = cast(*xcb_key_press_event_t)event;
+                    key_press_event := cast(*xcb_key_press_event_t)event;
                     // This is ESC
                     if key_press_event.detail == 9 quit = true;
                 }
@@ -278,6 +278,8 @@ main :: () {
         using xcb_procs: XCB_Symbols;
         using xcb_image_procs: XCB_Image_Symbols;
     }
+
+    #import "POSIX";
 } else #if OS == .MACOS {
     create_window_metal :: (width: int, height: int, window_name: string, window_x := -1, window_y := -1, parent: Window_Type = null, background_color_rgb := DEFAULT_WINDOW_CREATION_COLOR, wanted_msaa := DEFAULT_MSAA) -> *CAMetalLayer {
         if !application_initialized init_mac_app();
