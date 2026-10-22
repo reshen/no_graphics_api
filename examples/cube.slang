@@ -1,5 +1,4 @@
-#include <NoGraphicsAPI/shader.slang>
-#include "cube_shared.h"
+#include "generated_cube.slang"
 
 GPU_ROOT(CubeRootArguments, root);
 

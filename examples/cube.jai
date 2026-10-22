@@ -7,6 +7,20 @@ COLOR_FORMAT :: Format.BGRA8_SRGB;
 
 UP_AXIS :: Vector3.{0, 1, 0};
 
+// The @ShaderShared note and associated supporting build.jai code was copied (with permission) from https://github.com/wrapperup/cool-engine-jai/blob/ae7d0122c8d66ff41f274cab366ca98370f00c16/build.jai
+// thanks to vivian (https://github.com/wrapperup). This enables single definition of structs used both in
+// cpu and gpu (shader) code. Our build system then generates a slang header (./generated_cube.slang),
+// which is pulled in by the actual shader (./cube.slang)
+CubeVertex :: struct @ShaderShared {
+    position: Vector4;
+    uv: Vector2;
+};
+
+CubeRootArguments :: struct @ShaderShared {
+    vertices: *CubeVertex;
+    transform: Matrix4;
+};
+
 main :: () {
     defer assert_no_memory_leaks();
 
@@ -50,17 +64,6 @@ main :: () {
     });
     defer destroy_pso(pso);
     assert(pso != null);
-
-
-    CubeVertex :: struct {
-        position: Vector4;
-        uv: Vector2;
-    };
-
-    CubeRootArguments :: struct {
-        vertices: *CubeVertex;
-        transform: Matrix4;
-    };
 
     cube_vertices :: CubeVertex.[
         .{ position = .{ x = -1.0, y = -1.0, z = -1.0, w = 1.0 }, uv = .{ x = 0.0, y = 1.0 } },

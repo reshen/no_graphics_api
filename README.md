@@ -12,13 +12,15 @@ This repository contains Jai bindings for [Sebastian Aaltonen](https://github.co
 
 ## Examples
 
-At this time, Linux (uses X11 via XCB thanks to [jai-on-linux](https://github.com/valignatev/jai-on-linux/tree/master)) and Windows are working.
-Validated on Fedora 44 and Windows 11 using LunarG's VulkanSDK 1.4.357.0.
+At this time, Linux (uses X11 via XCB thanks to [jai-on-linux](https://github.com/valignatev/jai-on-linux/tree/master)),
+Windows 11, and MacOS are working.
+Validated on Fedora 44i, Windows 11 using LunarG's VulkanSDK 1.4.357.0, and macOS Golden Gate (27.0.1)
 
 1. Ensure your system has vulkan installed, see https://vulkan.lunarg.com/sdk/home
 1. Ensure your system has std c++ libraries installed, e.g., `libstdc++` on fedora
-1. Navigate into the `examples/` subdir, run `jai build.jai - -run`. This will compile and
-   launch a triangle example.
+1. Navigate into the `examples/` subdir, and use either of the following:
+    1. run `jai build.jai - -run -triangle`. This will compile code and transpile shaders and launch a triangle example.
+    1. run `jai build.jai - -run -cube`. This will compile code and transpile shaders and launch a cube example.
 
 ## Future improvements / TODO
 
