@@ -990,6 +990,9 @@ draw_meshlets_indirect :: (commands: *CommandBuffer, root: *void, arguments: Gpu
 BumpAllocator :: struct {
     alignment: u64 : 16;
 
+    // Storage must be nonempty, expose at least one address, and align every exposed address to 16 bytes.
+    Constructor :: (this: *BumpAllocator, storage: GpuCpuRange(u8)) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13BumpAllocatorC1ENS_11GpuCpuRangeIhEE";
+
     // The request must be nonzero. Reservations are rounded up to 16 bytes; an empty allocation reports exhausted storage.
     allocate :: (this: *BumpAllocator, byte_size: u64) -> GpuCpuRange(u8) #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13BumpAllocator8allocateEy";
 
@@ -1015,6 +1018,11 @@ FixedFunction :: struct(StorageSize: u64) {
 }
 
 DeleteQueue :: struct {
+    // Capacity must be nonzero, every callback must run before destruction, and the timeline must be live when tick() is called.
+    Constructor :: (this: *DeleteQueue, timeline: *TimelineSemaphore, capacity: u32) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueueC1EPNS_17TimelineSemaphoreEj";
+    Destructor_Base :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueueD2Ev";
+    Destructor :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueueD1Ev";
+
     tick :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueue4tickEv";
     drain :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueue5drainEv";
 
@@ -1041,8 +1049,13 @@ HeapAllocation :: struct(T: Type) {
 
 HeapAllocator :: struct {
     alignment:                u64 : 16;
-    maximum_size:             u64 : 68719476720;
+
     maximum_allocation_count: u32 : (4294967295 - 1) / 2;
+
+    // Storage must expose at least one address, align every exposed address to 16 bytes, and contain 16..maximum_size bytes.
+    // max_allocations must be 1..maximum_allocation_count.
+    // A trailing partial element is unused.
+    Constructor :: (this: *HeapAllocator, storage: GpuCpuRange(u8), max_allocations: u32) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocatorC1ENS_11GpuCpuRangeIhEEj";
 
     // The request must be nonzero. An allocation with an empty range reports exhausted storage.
     allocate :: (this: *HeapAllocator, byte_size: u64) -> HeapAllocation(u8) #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator8allocateEy";
@@ -1071,6 +1084,11 @@ HeapAllocator :: struct {
             neighbor_next:     NodeIndex = unused_node;
             used               := false;
         }
+
+        Constructor :: (this: *RangeAllocator, byte_size: u64, max_allocations: u32, element_size: u64) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocatorC1Eyjy";
+
+        Destructor_Base :: (this: *RangeAllocator) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocatorD2Ev";
+        Destructor :: (this: *RangeAllocator) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocatorD1Ev";
 
         allocate :: (this: *RangeAllocator, byte_size: u64) -> Range #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocator8allocateEy";
         free :: (this: *RangeAllocator, token: NodeIndex) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocator4freeEj";
@@ -1105,6 +1123,12 @@ PlacedTexture :: struct {
 }
 
 TextureAllocator :: struct {
+    // max_textures must be 1..HeapAllocator::maximum_allocation_count.
+    Constructor :: (this: *TextureAllocator, device: *Device, heap: *TextureHeap, max_textures: u32) -> void #cpp_method #foreign libnographicsapiutility_textures "_ZN3gpu16TextureAllocatorC1EPNS_6DeviceERKNS_11TextureHeapEj";
+    Constructor :: (this: *TextureAllocator, device: *Device, heap: TextureHeap, max_textures: u32) #no_context {
+        Constructor(this, device, *heap, max_textures);
+    }
+
     // Records initialization into commands. Externally synchronize this allocator and its command pool.
     // An empty result reports exhausted heap space. Free once with the same allocator after all views and GPU use have finished.
     allocate :: (this: *TextureAllocator, commands: *CommandBuffer, desc: *TextureDesc) -> PlacedTexture #cpp_method #foreign libnographicsapiutility_textures "_ZN3gpu16TextureAllocator8allocateEPNS_13CommandBufferERKNS_11TextureDescE";
@@ -1133,6 +1157,12 @@ UploadQueueStats :: struct {
 UploadQueue :: struct {
     operation_limit: u32 : 4096;
     alignment:       u64 : 16;
+
+    // Capacity must be a positive multiple of 16. queue_index must be less than DeviceCaps::queue_count.
+    // max_pending_batches must be nonzero; normally match the number of frames in flight.
+    Constructor :: (this: *UploadQueue, device: *Device, capacity: u64 = 64 * 1024 * 1024, queue_index: u32 = 0, max_pending_batches: u32 = 2) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueueC1EPNS_6DeviceEyjj";
+    Destructor_Base :: (this: *UploadQueue) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueueD2Ev";
+    Destructor :: (this: *UploadQueue) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueueD1Ev";
 
     // Flushes and waits for uploads. Finish external submissions using returned timeline points before destruction or move assignment.
     destroy :: (this: *UploadQueue) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueue7destroyEv";

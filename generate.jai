@@ -204,7 +204,7 @@ generate_bindings :: () -> bool {
     opts.log_stripped_declarations = true;
     // NOTE: intentionally excluded Strip_Flags.SYMBOLS_WITH_UNKNOWN_FOREIGN_LIBS since that's how we can tell what the
     // actual symbol name is when looking at the generated bindings jai file
-    opts.strip_flags = Strip_Flags.CONSTRUCTORS | Strip_Flags.DESTRUCTORS | Strip_Flags.INLINED_FUNCTIONS | Strip_Flags.FUNCTIONS_WITH_VALIST;
+    opts.strip_flags = Strip_Flags.SYMBOLS_WITH_UNKNOWN_FOREIGN_LIBS | Strip_Flags.FUNCTIONS_WITH_VALIST;
     opts.visitor = visitor;
 
     output_filename: string;
