@@ -64,7 +64,7 @@ quit_event_received :: (platform_window: PlatformWindow) -> bool {
             if event.response_type & 0x7F == {
                 case XCB_CLIENT_MESSAGE;
                 client_message: *xcb_client_message_event_t = xx event;
-                if (client_message.data.data32[0] == wm_delete_window_atom) {
+                if (client_message.data.data32[0] == platform_window.wm_delete_window_atom) {
                     return true;
                 }
 

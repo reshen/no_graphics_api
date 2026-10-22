@@ -93,6 +93,12 @@ Error :: enum u8 {
     out_of_memory :: OUT_OF_MEMORY;
 }
 
+ErrorCallback :: #type (message: *u8, fatal: bool) -> void #c_call;
+
+// Synchronous diagnostics on the calling thread; message is valid only during the callback. Do not call graphics APIs recursively.
+// The thread-local callback defaults to nullptr. Fatal execution errors still abort after the callback returns.
+set_error_callback :: (callback: ErrorCallback) -> void #foreign libnographicsapi "_ZN3gpu18set_error_callbackEPDoFvPKcbE";
+
 MemoryType :: enum u8 {
     CPU_VISIBLE :: 0;
     GPU_ONLY    :: 1;
@@ -538,7 +544,7 @@ DeviceCaps :: struct {
 
     // Common element size for suballocating TextureHeap storage; every SizeAlign::align divides this value.
     texture_heap_alignment:   u64 = 0;
-    timestamp_period_ns:      float = 0.0; // Nanoseconds per timestamp tick.
+    timestamp_period_ns:      float = 0.0; // Nanoseconds per timestamp tick; zero when profiling is unavailable.
     sub_texel_precision_bits: u32 = 0; // Fractional filtering precision, for conservative sampled-field bounds.
     texture_compression_bc    := false;
     texture_compression_astc  := false;
@@ -563,6 +569,7 @@ DeviceDesc :: struct {
     swapchain_format:              Format = .UNDEFINED;
     swapchain_color_space:         ColorSpace = .SRGB;
     desired_swapchain_image_count: u32 = 2; // Vulkan: 1..8 presentation contexts. Metal clamps to 2..3 drawables.
+    steam_overlay_compatibility    := false; // macOS only: allow drawable texture views and use classic Metal presentation.
 
     desired_queue_count:           u32 = 1; // General graphics + compute queues; must be nonzero.
     desired_compute_queue_count:   u32 = 0;
@@ -588,7 +595,6 @@ TextureDesc :: struct {
     format:         Format = .RGBA8_UNORM;
     mutable_format  := false; // Allow format-compatible descriptor views, but could lose DCC.
     usage:          TextureUsage = .SAMPLED;
-    aliasable       := false; // Overlapping placements require activation before each period of use; contents are discarded.
 }
 
 RenderViewDesc :: struct {
@@ -798,6 +804,7 @@ submit_and_present :: (device: *Device, desc: SubmitDesc) #no_context {
 }
 
 // Every non-null returned pointer is 16-byte aligned. GPU heaps are raw blocks for application-side suballocation.
+// Metal and Vulkan without device-address commands support at most 64 live GPU heaps per device.
 create_gpu_heap :: (device: *Device, byte_count: u64, memory: MemoryType = .CPU_VISIBLE) -> GpuHeap #foreign libnographicsapi "_ZN3gpu15create_gpu_heapEPNS_6DeviceEmNS_10MemoryTypeE";
 destroy_gpu_heap :: (heap: *GpuHeap) -> void #foreign libnographicsapi "_ZN3gpu16destroy_gpu_heapERKNS_7GpuHeapE";
 destroy_gpu_heap :: (heap: GpuHeap) #no_context {
@@ -812,8 +819,7 @@ gpu_range :: (heap: GpuHeap) -> GpuRange #no_context {
 }
 
 // Texture heaps use one device-selected GPU-only memory type and must outlive every placed texture.
-// Placements must satisfy get_texture_size_align(). Overlap is allowed only between aliasable textures with disjoint periods of GPU use.
-// Reusing a placement without alias activation requires completion of its last use and destruction of the old texture.
+// Placements must satisfy get_texture_size_align(). Overlapping textures require disjoint periods of GPU use and reinitialization after aliased writes.
 // DeviceCaps::texture_heap_alignment can be used as a common allocator element size, avoiding per-placement leading alignment padding.
 create_texture_heap :: (device: *Device, byte_count: u64) -> TextureHeap #foreign libnographicsapi "_ZN3gpu19create_texture_heapEPNS_6DeviceEm";
 destroy_texture_heap :: (heap: *TextureHeap) -> void #foreign libnographicsapi "_ZN3gpu20destroy_texture_heapERKNS_11TextureHeapE";
@@ -825,16 +831,12 @@ get_texture_size_align :: (device: *Device, desc: TextureDesc) -> SizeAlign #no_
     return get_texture_size_align(device, *desc);
 }
 
-// Records ordinary texture initialization into commands, outside a render pass. Submit before use. Aliasable textures defer initialization to activation.
-create_texture :: (commands: *CommandBuffer, desc: *TextureDesc, heap: *TextureHeap, offset: u64) -> *Texture #foreign libnographicsapi "_ZN3gpu14create_textureEPNS_13CommandBufferERKNS_11TextureDescERKNS_11TextureHeapEm";
-create_texture :: (commands: *CommandBuffer, desc: TextureDesc, heap: TextureHeap, offset: u64) -> *Texture #no_context {
-    return create_texture(commands, *desc, *heap, offset);
+// Creates an uninitialized texture without recording GPU commands. Views and descriptors can be created before initialize_texture().
+create_texture :: (device: *Device, desc: *TextureDesc, heap: *TextureHeap, offset: u64) -> *Texture #foreign libnographicsapi "_ZN3gpu14create_textureEPNS_6DeviceERKNS_11TextureDescERKNS_11TextureHeapEm";
+create_texture :: (device: *Device, desc: TextureDesc, heap: TextureHeap, offset: u64) -> *Texture #no_context {
+    return create_texture(device, *desc, *heap, offset);
 }
 destroy_texture :: (texture: *Texture) -> void #foreign libnographicsapi "_ZN3gpu15destroy_textureEPNS_7TextureE";
-
-// Activate an alias outside a render pass before its first use and whenever another alias has used its storage.
-// Discards contents and synchronizes prior uses on this queue; order other queues with timeline waits. Clear or overwrite before reading.
-activate_texture_alias :: (commands: *CommandBuffer, texture: *Texture) -> void #foreign libnographicsapi "_ZN3gpu22activate_texture_aliasEPNS_13CommandBufferEPNS_7TextureE";
 create_render_view :: (texture: *Texture, desc: *RenderViewDesc) -> *RenderView #foreign libnographicsapi "_ZN3gpu18create_render_viewEPNS_7TextureERKNS_14RenderViewDescE";
 create_render_view :: (texture: *Texture, desc: RenderViewDesc) -> *RenderView #no_context {
     return create_render_view(texture, *desc);
@@ -893,6 +895,13 @@ submit :: (device: *Device, desc: SubmitDesc, queue_index: u32 = 0) #no_context 
 set_texture_descriptor_heap :: (commands: *CommandBuffer, heap: *TextureDescriptorHeap) -> void #foreign libnographicsapi "_ZN3gpu27set_texture_descriptor_heapEPNS_13CommandBufferEPNS_21TextureDescriptorHeapE";
 set_sampler_descriptor_heap :: (commands: *CommandBuffer, heap: *SamplerDescriptorHeap) -> void #foreign libnographicsapi "_ZN3gpu27set_sampler_descriptor_heapEPNS_13CommandBufferEPNS_21SamplerDescriptorHeapE";
 
+// Initialize whole-texture metadata outside a render pass before first GPU use and before reuse after writes through an alias.
+// Texture aliasing uses overlapping placements in one TextureHeap; no creation flag is required.
+// Synchronize prior storage accesses and make their writes available with barriers or timeline waits first; these do not initialize metadata.
+// Discards contents; clear or overwrite before reading. Orders initialization before subsequent texture accesses on this queue.
+initialize_texture :: (commands: *CommandBuffer, texture: *Texture) -> void #foreign libnographicsapi "_ZN3gpu18initialize_textureEPNS_13CommandBufferEPNS_7TextureE";
+
+// Command GPU ranges must lie within one GPU heap.
 copy_memory :: (commands: *CommandBuffer, source: GpuRange, destination: GpuRange) -> void #foreign libnographicsapi "_ZN3gpu11copy_memoryEPNS_13CommandBufferENS_8GpuRangeES2_";
 
 // Depth/stencil copies require a general queue. Copy-only queues also require DeviceCaps::copy_texture_granularity alignment.
@@ -916,9 +925,12 @@ write_timestamp :: (commands: *CommandBuffer, cpu_destination: *u64, stage: Stag
 // Call before resetting the pool; reset discards unread results. Unsubmitted buffers are ignored.
 read_timestamps :: (pool: *CommandPool) -> void #foreign libnographicsapi "_ZN3gpu15read_timestampsEPNS_11CommandPoolE";
 
+// Every render pass starts with no graphics PSO. Bind one inside the pass before drawing, including every resumed segment.
+// Render-pass boundaries invalidate the current PSO selection; rebind a compute PSO before dispatching after a render pass.
 // Each segment needs matching attachments, load/store operations, and clear values, and its own begin/end_render_pass pair.
 // Submit the complete suspend/resume chain in order in one batch. No action or synchronization commands may occur between segments.
-// Resuming skips load/clear operations; suspending defers store operations. Command-buffer bindings are not inherited.
+// The first/last segments apply the requested load/store operations.
+// Command-buffer bindings are not inherited.
 begin_render_pass :: (commands: *CommandBuffer, desc: *RenderingDesc, flags: RenderingFlags = .NONE) -> void #foreign libnographicsapi "_ZN3gpu17begin_render_passEPNS_13CommandBufferERKNS_13RenderingDescENS_14RenderingFlagsE";
 begin_render_pass :: (commands: *CommandBuffer, desc: RenderingDesc, flags: RenderingFlags = .NONE) #no_context {
     begin_render_pass(commands, *desc, flags);
@@ -939,9 +951,11 @@ set_depth_stencil :: (commands: *CommandBuffer, state: DepthStencilState) #no_co
     set_depth_stencil(commands, *state);
 }
 
+// Bind graphics/mesh PSOs inside an active render pass; bind compute PSOs outside render passes.
 bind_pso :: (commands: *CommandBuffer, pso: *PSO) -> void #foreign libnographicsapi "_ZN3gpu8bind_psoEPNS_13CommandBufferEPKNS_3PSOE";
 
-// root is a 16-byte-aligned GPU address, or nullptr for shaders without root data. Retain its storage through GPU completion.
+// root uses the shared constant-buffer layout and a 16-byte-aligned GPU address, or nullptr for rootless shaders.
+// Retain its storage through GPU completion.
 // Finish CPU writes before submission; wait for prior GPU users before overwriting. Synchronize GPU writes before consuming the root.
 // Storage is application-owned; these commands do not copy root bytes or allocate memory.
 draw :: (commands: *CommandBuffer, root: *void, vertex_count: u32, instance_count: u32 = 1, first_vertex: u32 = 0, first_instance: u32 = 0) -> void #foreign libnographicsapi "_ZN3gpu4drawEPNS_13CommandBufferEPKvjjjj";
@@ -960,6 +974,9 @@ draw_meshlets_indirect :: (commands: *CommandBuffer, root: *void, arguments: Gpu
 
 BumpAllocator :: struct {
     alignment: u64 : 16;
+
+    // Storage must be nonempty, expose at least one address, and align every exposed address to 16 bytes.
+    Constructor :: (this: *BumpAllocator, storage: GpuCpuRange(u8)) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13BumpAllocatorC1ENS_11GpuCpuRangeIhEE";
 
     // The request must be nonzero. Reservations are rounded up to 16 bytes; an empty allocation reports exhausted storage.
     allocate :: (this: *BumpAllocator, byte_size: u64) -> GpuCpuRange(u8) #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13BumpAllocator8allocateEm";
@@ -986,6 +1003,11 @@ FixedFunction :: struct(StorageSize: u64) {
 }
 
 DeleteQueue :: struct {
+    // Capacity must be nonzero, every callback must run before destruction, and the timeline must be live when tick() is called.
+    Constructor :: (this: *DeleteQueue, timeline: *TimelineSemaphore, capacity: u32) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueueC1EPNS_17TimelineSemaphoreEj";
+    Destructor_Base :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueueD2Ev";
+    Destructor :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueueD1Ev";
+
     tick :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueue4tickEv";
     drain :: (this: *DeleteQueue) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu11DeleteQueue5drainEv";
 
@@ -1012,8 +1034,13 @@ HeapAllocation :: struct(T: Type) {
 
 HeapAllocator :: struct {
     alignment:                u64 : 16;
-    maximum_size:             u64 : 68719476720;
+
     maximum_allocation_count: u32 : (4294967295 - 1) / 2;
+
+    // Storage must expose at least one address, align every exposed address to 16 bytes, and contain 16..maximum_size bytes.
+    // max_allocations must be 1..maximum_allocation_count.
+    // A trailing partial element is unused.
+    Constructor :: (this: *HeapAllocator, storage: GpuCpuRange(u8), max_allocations: u32) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocatorC1ENS_11GpuCpuRangeIhEEj";
 
     // The request must be nonzero. An allocation with an empty range reports exhausted storage.
     allocate :: (this: *HeapAllocator, byte_size: u64) -> HeapAllocation(u8) #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator8allocateEm";
@@ -1042,6 +1069,11 @@ HeapAllocator :: struct {
             neighbor_next:     NodeIndex = unused_node;
             used               := false;
         }
+
+        Constructor :: (this: *RangeAllocator, byte_size: u64, max_allocations: u32, element_size: u64) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocatorC1Emjm";
+
+        Destructor_Base :: (this: *RangeAllocator) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocatorD2Ev";
+        Destructor :: (this: *RangeAllocator) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocatorD1Ev";
 
         allocate :: (this: *RangeAllocator, byte_size: u64) -> Range #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocator8allocateEm";
         free :: (this: *RangeAllocator, token: NodeIndex) -> void #cpp_method #foreign libnographicsapiutility_allocators "_ZN3gpu13HeapAllocator14RangeAllocator4freeEj";
@@ -1076,11 +1108,17 @@ PlacedTexture :: struct {
 }
 
 TextureAllocator :: struct {
-    // Records initialization into commands. Externally synchronize this allocator and its command pool.
+    // max_textures must be 1..HeapAllocator::maximum_allocation_count.
+    Constructor :: (this: *TextureAllocator, device: *Device, heap: *TextureHeap, max_textures: u32) -> void #cpp_method #foreign libnographicsapiutility_textures "_ZN3gpu16TextureAllocatorC1EPNS_6DeviceERKNS_11TextureHeapEj";
+    Constructor :: (this: *TextureAllocator, device: *Device, heap: TextureHeap, max_textures: u32) #no_context {
+        Constructor(this, device, *heap, max_textures);
+    }
+
+    // Returns an uninitialized texture. Externally synchronize this allocator.
     // An empty result reports exhausted heap space. Free once with the same allocator after all views and GPU use have finished.
-    allocate :: (this: *TextureAllocator, commands: *CommandBuffer, desc: *TextureDesc) -> PlacedTexture #cpp_method #foreign libnographicsapiutility_textures "_ZN3gpu16TextureAllocator8allocateEPNS_13CommandBufferERKNS_11TextureDescE";
-    allocate :: (this: *TextureAllocator, commands: *CommandBuffer, desc: TextureDesc) -> PlacedTexture #no_context {
-        return allocate(this, commands, *desc);
+    allocate :: (this: *TextureAllocator, desc: *TextureDesc) -> PlacedTexture #cpp_method #foreign libnographicsapiutility_textures "_ZN3gpu16TextureAllocator8allocateERKNS_11TextureDescE";
+    allocate :: (this: *TextureAllocator, desc: TextureDesc) -> PlacedTexture #no_context {
+        return allocate(this, *desc);
     }
     free :: (this: *TextureAllocator, texture: *PlacedTexture) -> void #cpp_method #foreign libnographicsapiutility_textures "_ZN3gpu16TextureAllocator4freeERNS_13PlacedTextureE";
 
@@ -1105,6 +1143,12 @@ UploadQueue :: struct {
     operation_limit: u32 : 4096;
     alignment:       u64 : 16;
 
+    // Capacity must be a positive multiple of 16. queue_index must be less than DeviceCaps::queue_count.
+    // max_pending_batches must be nonzero; normally match the number of frames in flight.
+    Constructor :: (this: *UploadQueue, device: *Device, capacity: u64 = 64 * 1024 * 1024, queue_index: u32 = 0, max_pending_batches: u32 = 2) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueueC1EPNS_6DeviceEmjj";
+    Destructor_Base :: (this: *UploadQueue) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueueD2Ev";
+    Destructor :: (this: *UploadQueue) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueueD1Ev";
+
     // Flushes and waits for uploads. Finish external submissions using returned timeline points before destruction or move assignment.
     destroy :: (this: *UploadQueue) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueue7destroyEv";
 
@@ -1123,6 +1167,11 @@ UploadQueue :: struct {
 
     // Returns the latest upload completion point, borrowing this uploader's semaphore. Other queues can consume it through SubmitDesc::waits.
     flush :: (this: *UploadQueue) -> TimelinePoint #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueue5flushEv";
+
+    // Optional synchronous submission handoff. The callback must submit the batch exactly once before returning,
+    // using the supplied queue and completion point. It must not access this uploader. Change only with exclusive ownership.
+    SubmitCallback :: #type (_context: *void, device: *Device, commands: *CommandBuffer, completion: TimelinePoint, queue_index: u32) -> void #c_call;
+    set_submit_callback :: (this: *UploadQueue, callback: SubmitCallback, _context: *void = null) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueue19set_submit_callbackEPDoFvPvPNS_6DeviceEPNS_13CommandBufferENS_13TimelinePointEjES1_";
     wait :: (this: *UploadQueue) -> void #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueue4waitEv";
 
     // Retrieves timestamps and reclaims completed batches without waiting or flushing pending uploads. wait() also reclaims all batches.
@@ -1158,6 +1207,8 @@ UploadQueue :: struct {
         submissions:         u64 = 0;
         waits:               u64 = 0;
         peak_bytes:          u64 = 0;
+        submit_callback:     SubmitCallback = null;
+        submit_context:      *void = null;
     }
 
     begin :: (this: *UploadQueue) -> *CommandBuffer #cpp_method #foreign libnographicsapiutility_uploads "_ZN3gpu11UploadQueue5beginEv";

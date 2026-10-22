@@ -361,7 +361,7 @@ struct DeviceCaps
     uint64 max_push_data_size = 0;
     // Common element size for suballocating TextureHeap storage; every SizeAlign::align divides this value.
     uint64 texture_heap_alignment = 0;
-    float timestamp_period_ns = 0.0f; // Nanoseconds per timestamp tick.
+    float timestamp_period_ns = 0.0f; // Nanoseconds per timestamp tick; zero when profiling is unavailable.
     uint32 sub_texel_precision_bits = 0; // Fractional filtering precision, for conservative sampled-field bounds.
     bool texture_compression_bc = false;
     bool texture_compression_astc = false;
@@ -382,6 +382,7 @@ struct DeviceDesc
     Format swapchain_format = Format::undefined;
     ColorSpace swapchain_color_space = ColorSpace::srgb;
     uint32 desired_swapchain_image_count = 2; // Vulkan: 1..8 presentation contexts. Metal clamps to 2..3 drawables.
+    bool steam_overlay_compatibility = false; // macOS only: allow drawable texture views and use classic Metal presentation.
     // Counts are capped to each family's capacity. A nonzero request requires that kind of queue to be available.
     uint32 desired_queue_count = 1; // General graphics + compute queues; must be nonzero.
     uint32 desired_compute_queue_count = 0;
@@ -410,7 +411,6 @@ struct TextureDesc
     Format format = Format::rgba8_unorm;
     bool mutable_format = false; // Allow format-compatible descriptor views, but could lose DCC.
     TextureUsage usage = TextureUsage::sampled;
-    bool aliasable = false; // Overlapping placements require activation before each period of use; contents are discarded.
 };
 
 struct RenderViewDesc
@@ -634,6 +634,7 @@ void wait_idle(Device* device) noexcept;
 void submit_and_present(Device* device, const SubmitDesc& desc) noexcept;
 
 // Every non-null returned pointer is 16-byte aligned. GPU heaps are raw blocks for application-side suballocation.
+// Metal and Vulkan without device-address commands support at most 64 live GPU heaps per device.
 [[nodiscard]] GpuHeap create_gpu_heap(Device* device, uint64 byte_count, MemoryType memory = MemoryType::cpu_visible) noexcept;
 void destroy_gpu_heap(const GpuHeap& heap) noexcept;
 
@@ -648,18 +649,14 @@ template<typename T>
 [[nodiscard]] GpuRange gpu_range(const GpuHeap& heap) noexcept;
 
 // Texture heaps use one device-selected GPU-only memory type and must outlive every placed texture.
-// Placements must satisfy get_texture_size_align(). Overlap is allowed only between aliasable textures with disjoint periods of GPU use.
-// Reusing a placement without alias activation requires completion of its last use and destruction of the old texture.
+// Placements must satisfy get_texture_size_align(). Overlapping textures require disjoint periods of GPU use and reinitialization after aliased writes.
 // DeviceCaps::texture_heap_alignment can be used as a common allocator element size, avoiding per-placement leading alignment padding.
 [[nodiscard]] TextureHeap create_texture_heap(Device* device, uint64 byte_count) noexcept;
 void destroy_texture_heap(const TextureHeap& heap) noexcept;
 [[nodiscard]] SizeAlign get_texture_size_align(Device* device, const TextureDesc& desc) noexcept;
-// Records ordinary texture initialization into commands, outside a render pass. Submit before use. Aliasable textures defer initialization to activation.
-[[nodiscard]] Texture* create_texture(CommandBuffer* commands, const TextureDesc& desc, const TextureHeap& heap, uint64 offset) noexcept;
+// Creates an uninitialized texture without recording GPU commands. Views and descriptors can be created before initialize_texture().
+[[nodiscard]] Texture* create_texture(Device* device, const TextureDesc& desc, const TextureHeap& heap, uint64 offset) noexcept;
 void destroy_texture(Texture* texture) noexcept;
-// Activate an alias outside a render pass before its first use and whenever another alias has used its storage.
-// Discards contents and synchronizes prior uses on this queue; order other queues with timeline waits. Clear or overwrite before reading.
-void activate_texture_alias(CommandBuffer* commands, Texture* texture) noexcept;
 [[nodiscard]] RenderView* create_render_view(Texture* texture, const RenderViewDesc& desc = {}) noexcept;
 void destroy_render_view(RenderView* render_view) noexcept;
 // Descriptor slots form application-owned namespaces. Writes and copies require indices within capacity;
@@ -696,6 +693,13 @@ void submit(Device* device, const SubmitDesc& desc, uint32 queue_index = 0) noex
 void set_texture_descriptor_heap(CommandBuffer* commands, TextureDescriptorHeap* heap) noexcept;
 void set_sampler_descriptor_heap(CommandBuffer* commands, SamplerDescriptorHeap* heap) noexcept;
 
+// Initialize whole-texture metadata outside a render pass before first GPU use and before reuse after writes through an alias.
+// Texture aliasing uses overlapping placements in one TextureHeap; no creation flag is required.
+// Synchronize prior storage accesses and make their writes available with barriers or timeline waits first; these do not initialize metadata.
+// Discards contents; clear or overwrite before reading. Orders initialization before subsequent texture accesses on this queue.
+void initialize_texture(CommandBuffer* commands, Texture* texture) noexcept;
+
+// Command GPU ranges must lie within one GPU heap.
 void copy_memory(CommandBuffer* commands, GpuRange source, GpuRange destination) noexcept;
 // Depth/stencil copies require a general queue. Copy-only queues also require DeviceCaps::copy_texture_granularity alignment.
 void copy_memory_to_texture(CommandBuffer* commands, GpuRange source, Texture* destination, const TextureCopyDesc& copy = {}) noexcept;
@@ -711,9 +715,12 @@ void write_timestamp(CommandBuffer* commands, uint64* cpu_destination, Stage sta
 // Call before resetting the pool; reset discards unread results. Unsubmitted buffers are ignored.
 void read_timestamps(CommandPool* pool) noexcept;
 
+// Every render pass starts with no graphics PSO. Bind one inside the pass before drawing, including every resumed segment.
+// Render-pass boundaries invalidate the current PSO selection; rebind a compute PSO before dispatching after a render pass.
 // Each segment needs matching attachments, load/store operations, and clear values, and its own begin/end_render_pass pair.
 // Submit the complete suspend/resume chain in order in one batch. No action or synchronization commands may occur between segments.
-// Resuming skips load/clear operations; suspending defers store operations. Command-buffer bindings are not inherited.
+// The first/last segments apply the requested load/store operations.
+// Command-buffer bindings are not inherited.
 void begin_render_pass(CommandBuffer* commands, const RenderingDesc& desc, RenderingFlags flags = RenderingFlags::none) noexcept;
 void end_render_pass(CommandBuffer* commands) noexcept;
 
@@ -722,9 +729,11 @@ void set_viewport(CommandBuffer* commands, const Viewport& viewport) noexcept;
 void set_scissor(CommandBuffer* commands, const Scissor& scissor) noexcept;
 void set_depth_stencil(CommandBuffer* commands, const DepthStencilState& state) noexcept;
 
+// Bind graphics/mesh PSOs inside an active render pass; bind compute PSOs outside render passes.
 void bind_pso(CommandBuffer* commands, const PSO* pso) noexcept;
 
-// root is a 16-byte-aligned GPU address, or nullptr for shaders without root data. Retain its storage through GPU completion.
+// root uses the shared constant-buffer layout and a 16-byte-aligned GPU address, or nullptr for rootless shaders.
+// Retain its storage through GPU completion.
 // Finish CPU writes before submission; wait for prior GPU users before overwriting. Synchronize GPU writes before consuming the root.
 // Storage is application-owned; these commands do not copy root bytes or allocate memory.
 void draw(CommandBuffer* commands, const void* root, uint32 vertex_count, uint32 instance_count = 1, uint32 first_vertex = 0,
