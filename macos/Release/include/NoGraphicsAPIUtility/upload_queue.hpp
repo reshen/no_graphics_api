@@ -61,6 +61,10 @@ public:
     void write_timestamp(uint64* cpu_destination) noexcept;
     // Returns the latest upload completion point, borrowing this uploader's semaphore. Other queues can consume it through SubmitDesc::waits.
     TimelinePoint flush() noexcept;
+    // Optional synchronous submission handoff. The callback must submit the batch exactly once before returning,
+    // using the supplied queue and completion point. It must not access this uploader. Change only with exclusive ownership.
+    using SubmitCallback = void (*)(void* context, Device* device, CommandBuffer* commands, TimelinePoint completion, uint32 queue_index) noexcept;
+    void set_submit_callback(SubmitCallback callback, void* context = nullptr) noexcept;
     void wait() noexcept;
     // Retrieves timestamps and reclaims completed batches without waiting or flushing pending uploads. wait() also reclaims all batches.
     void reclaim() noexcept;
@@ -100,6 +104,8 @@ private:
         uint64 submissions = 0;
         uint64 waits = 0;
         uint64 peak_bytes = 0;
+        SubmitCallback submit_callback = nullptr;
+        void* submit_context = nullptr;
     };
 
     CommandBuffer* begin() noexcept;

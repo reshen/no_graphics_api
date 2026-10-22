@@ -12,6 +12,7 @@ struct CubeVertex {
 
 struct CubeRootArguments {
     CubeVertex* vertices;
+    uint32_t root_alignment_padding0[2];
     float4x4 transform;
 }
 

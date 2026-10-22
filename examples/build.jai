@@ -32,7 +32,7 @@ build :: () {
                 src_file = "cube.jai";
         }
     }
-    assert(src_file.count > 0);
+    assert(src_file.count > 0, "You must provide specify an example, e.g., append either -triangle or -cube");
 
     // We must set the build options before adding any source.
     // The compiler disallows this afterward, because it would result
@@ -326,17 +326,13 @@ recurse_type_instantiation_to_string :: (inst: *Code_Type_Instantiation) -> type
     expr: *Code_Node;
     pointer: string;
     if inst.pointer_to != null {
-        print("inst.*: %\n inst.pointer_to.*: %\n\n", inst.*, inst.pointer_to.*);
-        // compiler_report("Pointers are not allowed.", make_location(inst));
         expr = inst.pointer_to.type_valued_expression;
         pointer = "*";
     } else {
         expr = inst.type_valued_expression;
     }
 
-    // expr := inst.type_valued_expression;
     assert(expr != null);
-    // print("expr %\n", expr.*);
 
     if expr.kind == {
         case .IDENT;

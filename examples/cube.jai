@@ -18,6 +18,7 @@ CubeVertex :: struct @ShaderShared {
 
 CubeRootArguments :: struct @ShaderShared {
     vertices: *CubeVertex;
+    root_alignment_padding0: [2]u32;
     transform: Matrix4;
 };
 
@@ -151,7 +152,7 @@ main :: () {
     texture_commands: *CommandBuffer = begin_commands(command_pools[0]);
 
     // Textures
-    texture: PlacedTexture = TextureAllocator.allocate(*texture_allocator, texture_commands, .{
+    texture: PlacedTexture = TextureAllocator.allocate(*texture_allocator, TextureDesc.{
         extent = .{texture_width, texture_height, 1},
         format = Format.RGBA8_SRGB,
         usage = TextureUsage.SAMPLED | TextureUsage.TRANSFER_DESTINATION,
@@ -206,7 +207,7 @@ main :: () {
             if (depth.texture) wait_timeline(latest_completion);
             destroy_render_view(depth_render_view);
             TextureAllocator.free(*texture_allocator, *depth);
-            depth = TextureAllocator.allocate(*texture_allocator, commands, {
+            depth = TextureAllocator.allocate(*texture_allocator, {
                 extent = .{ frame.extent.x, frame.extent.y, 1},
                 format = Format.D32_FLOAT,
                 usage = TextureUsage.DEPTH_STENCIL_ATTACHMENT,

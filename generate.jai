@@ -3,8 +3,6 @@
 LIVE_OUTPUT :: true;
 
 DECLARATIONS_TO_OMIT :: string.[
-    "set_error_callback",
-    "ErrorCallback",
 ];
 
 DECLARATIONS_TO_RENAME :: [2] string.[
@@ -109,7 +107,7 @@ build_no_graphics_api :: (build_type: string) -> bool {
 
         // clean up cmake dirs, we don't need them
         LIB_DIR := ifx OS == .LINUX then "lib64" else "lib";
-        result := run_command("rm", "-vrf", tprint("%/%/cmake", INSTALL_PATH, LIB_DIR, build_type), capture_and_return_output = false, print_captured_output = LIVE_OUTPUT);
+        result := run_command("rm", "-vrf", tprint("%/%/cmake", INSTALL_PATH, LIB_DIR), capture_and_return_output = false, print_captured_output = LIVE_OUTPUT);
         assert(result.exit_code == 0);
     } else #if OS == .WINDOWS {
         source_dir_prefixes :: string.["NoGraphicsAPI/build-msvc", "NoGraphicsAPI/build-msvc/utility"];
