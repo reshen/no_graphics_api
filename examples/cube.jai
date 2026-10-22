@@ -106,9 +106,10 @@ main :: () {
         20, 21, 22, 22, 23, 20,
     ];
 
-
     texture_width: u32 = 256;
     texture_height: u32 = 256;
+    texture_byte_count := texture_width * texture_height * 4;
+
     texture_heap_size :: 256 * 1024 * 1024;
     radians_per_frame: float = 0.5 * PI / 180.0;
 
@@ -122,14 +123,15 @@ main :: () {
     memcpy(vertex_allocation.cpu, cube_vertices.data, size_of(type_of(cube_vertices)));
     memcpy(index_allocation.cpu, cube_indices.data, size_of(type_of(cube_indices)));
 
-    texture_data:, ok = read_entire_file("lunarg_logo_256x256.rgba8");
-    defer free(texture_data.data);
-    assert(ok);
-    upload_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(*data_allocator, texture_data.size);
-    memcpy(upload_allocation.cpu, texture_data.data, xx texture_data.size);
+    upload_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(*data_allocator, texture_byte_count);
+    {
+        ok, bytes_read := read_entire_file("lunarg_logo_256x256.rgba8", upload_allocation.cpu, texture_byte_count);
+        assert(ok);
+        assert(texture_byte_count == bytes_read);
+    }
 
     uploads: UploadQueue;
-    UploadQueue.Constructor(*uploads, device, texture_data.size);
+    UploadQueue.Constructor(*uploads, device, texture_byte_count);
 
     texture_descriptor_heap: *TextureDescriptorHeap = create_texture_descriptor_heap(device, 1);
     defer destroy_texture_descriptor_heap(texture_descriptor_heap);
@@ -166,7 +168,7 @@ main :: () {
     latest_completion.value += 1;
 
     submit(device, SubmitDesc.{commands = to_span(texture_commands), completion = latest_completion});
-    UploadQueue.upload_texture(*uploads, texture.texture, ByteSpan.{upload_allocation.cpu, texture_data.size},
+    UploadQueue.upload_texture(*uploads, texture.texture, ByteSpan.{upload_allocation.cpu, texture_byte_count},
         TextureCopyDesc.{});
     UploadQueue.wait(*uploads);
     UploadQueue.destroy(*uploads);

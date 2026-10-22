@@ -1,12 +1,21 @@
 #module_parameters (DEBUG := false);
 
 read_entire_file :: (name: string, zero_terminated := false, log_errors := true) -> ByteSpan, bool {
-    File :: #import "File";
     file, ok := File.read_entire_file(name, zero_terminated, log_errors);
 
     if !ok return .{}, ok;
 
     return .{ data = xx file.data, size = xx file.count }, ok;
+}
+
+read_entire_file :: (path: string, dest: *void, max_bytes_to_read: s64) -> bool, u64 {
+    file, success := File.file_open(path, for_writing=false);
+    if !success return false, 0;
+    defer File.file_close(*file);
+
+    actual_bytes_read: s64;
+    success, actual_bytes_read = File.file_read(file, dest, max_bytes_to_read);
+    return success, xx actual_bytes_read;
 }
 
 array_to_span :: inline (a: [] $T) -> Span(T) {
@@ -71,3 +80,4 @@ memcpy :: inline (gpu_cpu_range: GpuCpuRange($T), array: [] T) {
     #assert false, "unsupported OS";
 }
 #import "Basic";
+File :: #import "File";
