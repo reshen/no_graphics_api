@@ -16,6 +16,11 @@ build :: () {
     build_options.output_path = ".";
     build_options.output_type = .EXECUTABLE;
 
+    #if OS == .MACOS {
+        // Silence lld-macos warnings about target min in versions
+        build_options.minimum_os_version = { major = 26, minor = 0 };
+    }
+
     autorun := false;
     command_line_opts := get_build_options();
     src_file: string;
@@ -154,11 +159,11 @@ init_options :: (workspace: Workspace, optimization_type: Optimization_Type) -> 
         // linking against stdc++ for new/delete as those are transitive deps of NoGraphicsAPI
         // TODO: It'd be nice if we could update the library to enable custom allocators
         // TODO do we need stdc++, can't we just bake that into the module.jai?
-        build_options.additional_linker_arguments = .["-lvulkan", "-lstdc++"];
+        add_linker_args(build_options, .["-lvulkan", "-lstdc++"]);
     } else #if OS == .WINDOWS {
         vk_sdk_path := getVulkanSDKPath();
         // print("Vulkan SDK path: \"%\"\n", vk_sdk_path);
-        build_options.additional_linker_arguments = .[tprint("/libpath:\"%/Lib\"", vk_sdk_path), "vulkan-1.lib"];
+        add_linker_args(build_options, .[tprint("/libpath:\"%/Lib\"", vk_sdk_path), "vulkan-1.lib"]);
     }
 
     return build_options;

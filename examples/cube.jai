@@ -117,22 +117,23 @@ main :: () {
     DATA_HEAP_SIZE :: 1024 * 1024;
     data_heap: GpuHeap = create_gpu_heap(device, DATA_HEAP_SIZE);
     defer destroy_gpu_heap(data_heap);
-    data_allocator: BumpAllocator = create_bump_allocator(data_heap.range);
-    frame_ranges := BumpAllocator.[create_bump_allocator(BumpAllocator.allocate(*data_allocator, 4096)), create_bump_allocator(BumpAllocator.allocate(*data_allocator, 4096))];
-    vertex_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(*data_allocator, size_of(type_of(cube_vertices)));
-    index_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(*data_allocator, size_of(type_of(cube_indices)));
+    data_allocator: *BumpAllocator = *create_bump_allocator(data_heap.range);
+    frame_ranges := BumpAllocator.[create_bump_allocator(BumpAllocator.allocate(data_allocator, 4096)), create_bump_allocator(BumpAllocator.allocate(data_allocator, 4096))];
+    vertex_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(data_allocator, size_of(type_of(cube_vertices)));
+    index_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(data_allocator, size_of(type_of(cube_indices)));
     memcpy(vertex_allocation.cpu, cube_vertices.data, size_of(type_of(cube_vertices)));
     memcpy(index_allocation.cpu, cube_indices.data, size_of(type_of(cube_indices)));
 
-    upload_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(*data_allocator, texture_byte_count);
+    upload_allocation: GpuCpuRange(u8) = BumpAllocator.allocate(data_allocator, texture_byte_count);
     {
         ok, bytes_read := read_entire_file("lunarg_logo_256x256.rgba8", upload_allocation.cpu, texture_byte_count);
         assert(ok);
         assert(texture_byte_count == bytes_read);
     }
 
-    uploads: UploadQueue;
-    UploadQueue.Constructor(*uploads, device, texture_byte_count);
+    actual_uploads: UploadQueue;
+    uploads := *actual_uploads; // just a convenience since every usage accepts the pointer version
+    UploadQueue.Constructor(uploads, device, texture_byte_count);
 
     texture_descriptor_heap: *TextureDescriptorHeap = create_texture_descriptor_heap(device, 1);
     defer destroy_texture_descriptor_heap(texture_descriptor_heap);
@@ -140,8 +141,9 @@ main :: () {
     defer destroy_sampler_descriptor_heap(sampler_descriptor_heap);
     texture_heap: TextureHeap = create_texture_heap(device, texture_heap_size);
     defer destroy_texture_heap(texture_heap);
-    texture_allocator: TextureAllocator;
-    TextureAllocator.Constructor(*texture_allocator, device, texture_heap, max_textures = 16);
+    actual_texture_allocator := TextureAllocator.{};
+    texture_allocator: *TextureAllocator = *actual_texture_allocator; // just a convenience since every usage accepts the pointer version
+    TextureAllocator.Constructor(texture_allocator, device, texture_heap, max_textures = 16);
 
     latest_completion := TimelinePoint.{ semaphore = create_timeline_semaphore(device) };
     defer destroy_timeline_semaphore(latest_completion.semaphore);
@@ -152,7 +154,7 @@ main :: () {
     texture_commands: *CommandBuffer = begin_commands(command_pools[0]);
 
     // Textures
-    texture: PlacedTexture = TextureAllocator.allocate(*texture_allocator, TextureDesc.{
+    texture: PlacedTexture = TextureAllocator.allocate(texture_allocator, TextureDesc.{
         extent = .{texture_width, texture_height, 1},
         format = Format.RGBA8_SRGB,
         usage = TextureUsage.SAMPLED | TextureUsage.TRANSFER_DESTINATION,
@@ -169,10 +171,10 @@ main :: () {
     latest_completion.value += 1;
 
     submit(device, SubmitDesc.{commands = to_span(texture_commands), completion = latest_completion});
-    UploadQueue.upload_texture(*uploads, texture.texture, ByteSpan.{upload_allocation.cpu, texture_byte_count},
+    UploadQueue.upload_texture(uploads, texture.texture, ByteSpan.{upload_allocation.cpu, texture_byte_count},
         TextureCopyDesc.{});
-    UploadQueue.wait(*uploads);
-    UploadQueue.destroy(*uploads);
+    UploadQueue.wait(uploads);
+    UploadQueue.destroy(uploads);
 
     depth: PlacedTexture;
     depth_render_view: *RenderView;
@@ -193,7 +195,8 @@ main :: () {
             });
         }
 
-        frame_data: BumpAllocator = frame_ranges[latest_completion.value % 2];
+        frame_data: *BumpAllocator = *frame_ranges[latest_completion.value % 2];
+        BumpAllocator.reset(frame_data);
         command_pool: *CommandPool = command_pools[latest_completion.value % 2];
         reset_command_pool(command_pool);
         commands: *CommandBuffer = begin_commands(command_pool);
@@ -206,8 +209,8 @@ main :: () {
         {
             if (depth.texture) wait_timeline(latest_completion);
             destroy_render_view(depth_render_view);
-            TextureAllocator.free(*texture_allocator, *depth);
-            depth = TextureAllocator.allocate(*texture_allocator, {
+            TextureAllocator.free(texture_allocator, *depth);
+            depth = TextureAllocator.allocate(texture_allocator, {
                 extent = .{ frame.extent.x, frame.extent.y, 1},
                 format = Format.D32_FLOAT,
                 usage = TextureUsage.DEPTH_STENCIL_ATTACHMENT,
@@ -242,7 +245,7 @@ main :: () {
 
         projection: Matrix4 = make_projection_matrix(45.0 * PI / 180.0, frame.extent.x.(float) / frame.extent.y.(float), 0.1, 100.0);
         projection.v[1].y = -projection.v[1].y;
-        root: GpuCpuRange(u8) = BumpAllocator.allocate(*frame_data, size_of(CubeRootArguments));
+        root: GpuCpuRange(u8) = BumpAllocator.allocate(frame_data, size_of(CubeRootArguments));
 
         src_data := CubeRootArguments.{
             vertices = xx vertex_allocation.gpu,
@@ -268,8 +271,8 @@ main :: () {
 
     // Cleanup
     if (depth_render_view) destroy_render_view(depth_render_view);
-    if (depth.texture) TextureAllocator.free(*texture_allocator, *depth);
-    if (texture.texture) TextureAllocator.free(*texture_allocator, *texture);
+    if (depth.texture) TextureAllocator.free(texture_allocator, *depth);
+    if (texture.texture) TextureAllocator.free(texture_allocator, *texture);
 }
 
 assert_no_memory_leaks :: () {
