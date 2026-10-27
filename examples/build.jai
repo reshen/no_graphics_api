@@ -1,3 +1,6 @@
+// debug subprocess execution
+PRINT_RUN_CMD_OUTPUT :: false;
+
 #run,stallable build();
 build :: () {
     optimization_type: Optimization_Type = Optimization_Type.DEBUG;
@@ -120,25 +123,20 @@ build_shaders :: (shader_filename_without_ext: string) {
         process_result: Process_Result;
 
         #if OS == .LINUX || OS == .WINDOWS {
-            cmd := tprint("slangc %.slang -target spirv -profile spirv_1_5 -emit-spirv-directly -fvk-use-entrypoint-name -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -capability spvDescriptorHeapEXT -o %.%.spv", shader_filename_without_ext, entry_point, stage_name, shader_filename_without_ext, ext_name);
-            process_result = run_command(..split(cmd, " "));
-            assert(process_result.exit_code == 0);
+            cmd := tprint("slangc %.slang -target spirv -profile spirv_1_5 -emit-spirv-directly -fvk-use-entrypoint-name -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -capability spvDescriptorHeapEXT -o %.%.spv -validate-ir-detailed -Wall -Wextra -Wpedantic -warnings-as-errors all", shader_filename_without_ext, entry_point, stage_name, shader_filename_without_ext, ext_name);
+            run_cmd(cmd);
 
             cmd = tprint("spirv-val --target-env vulkan1.4 --scalar-block-layout %.%.spv", shader_filename_without_ext, ext_name);
-            process_result = run_command(..split(cmd, " "));
-            assert(process_result.exit_code == 0);
+            run_cmd(cmd);
         } else #if OS == .MACOS {
-            cmd := tprint("slangc %.slang -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -target metal -DNOGRAPHICSAPI_METAL -o %.%.metal", shader_filename_without_ext, entry_point, stage_name, shader_filename_without_ext, ext_name);
-            process_result = run_command(..split(cmd, " "));
-            assert(process_result.exit_code == 0);
+            cmd := tprint("slangc %.slang -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -target metal -DNOGRAPHICSAPI_METAL -o %.%.metal -validate-ir-detailed -Wall -Wextra -Wpedantic -warnings-as-errors all", shader_filename_without_ext, entry_point, stage_name, shader_filename_without_ext, ext_name);
+            run_cmd(cmd);
 
             cmd = tprint("xcrun -sdk macosx metal -std=metal4.0 -c %.%.metal -o %.%.air", shader_filename_without_ext, ext_name, shader_filename_without_ext, ext_name);
-            process_result = run_command(..split(cmd, " "));
-            assert(process_result.exit_code == 0);
+            run_cmd(cmd);
 
             cmd = tprint("xcrun -sdk macosx metallib %.%.air -o %.%.metallib", shader_filename_without_ext, ext_name, shader_filename_without_ext, ext_name);
-            process_result = run_command(..split(cmd, " "));
-            assert(process_result.exit_code == 0);
+            run_cmd(cmd);
         } else { 
             assert(false, "Unsupported OS");
         }
@@ -413,6 +411,12 @@ parse_into_slang_member :: (decl: *Code_Declaration, indent: s64) -> member_stri
     return builder_to_string(*builder);
 }
 
+run_cmd :: (cmd: string) -> process_result: Process_Result {
+    if PRINT_RUN_CMD_OUTPUT  print("running: %\n", cmd);
+    process_result := run_command(..split(cmd, " "), capture_and_return_output = true, print_captured_output = PRINT_RUN_CMD_OUTPUT);
+    assert(process_result.exit_code == 0);
+    return process_result;
+}
 
 #import "Basic";
 #import "Compiler";
