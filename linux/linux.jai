@@ -1247,3 +1247,5 @@ upload_texture :: (queue: *UploadQueue, destination: *Texture, description: Text
     libnographicsapiutility_allocators :: #library,no_dll "Release/lib64/libNoGraphicsAPIUtility_allocators";
     libnographicsapiutility_textures :: #library,no_dll "Release/lib64/libNoGraphicsAPIUtility_textures";
 }
+libcxx :: #library,system,link_always "stdc++";
+libvulkan :: #library,system,link_always "vulkan";

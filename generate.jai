@@ -369,6 +369,8 @@ FOOTER :: #string EOF
     libnographicsapiutility_allocators :: #library,no_dll "Release/lib64/libNoGraphicsAPIUtility_allocators";
     libnographicsapiutility_textures :: #library,no_dll "Release/lib64/libNoGraphicsAPIUtility_textures";
 }
+libcxx :: #library,system,link_always "stdc++";
+libvulkan :: #library,system,link_always "vulkan";
 EOF
 } else #if OS == .WINDOWS {
 FOOTER :: #string EOF

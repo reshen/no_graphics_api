@@ -157,12 +157,7 @@ init_options :: (workspace: Workspace, optimization_type: Optimization_Type) -> 
 
     build_options.arithmetic_overflow_check = .FATAL;
 
-    #if OS == .LINUX {
-        // linking against stdc++ for new/delete as those are transitive deps of NoGraphicsAPI
-        // TODO: It'd be nice if we could update the library to enable custom allocators
-        // TODO do we need stdc++, can't we just bake that into the module.jai?
-        add_linker_args(*build_options, .["-lvulkan", "-lstdc++"]);
-    } else #if OS == .WINDOWS {
+    #if OS == .WINDOWS {
         vk_sdk_path := getVulkanSDKPath();
         // print("Vulkan SDK path: \"%\"\n", vk_sdk_path);
         add_linker_args(*build_options, .[tprint("/libpath:\"%/Lib\"", vk_sdk_path), "vulkan-1.lib"]);
