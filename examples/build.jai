@@ -124,9 +124,9 @@ build_shaders :: (shader_filename_without_ext: string) {
 
         #if OS == .LINUX || OS == .WINDOWS {
             cmd := tprint("slangc %.slang -target spirv -profile spirv_1_5 -emit-spirv-directly -fvk-use-entrypoint-name -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -capability spvDescriptorHeapEXT -o %.%.spv -Wall -Wextra -Wpedantic -warnings-as-errors all", shader_filename_without_ext, entry_point, stage_name, shader_filename_without_ext, ext_name);
-            #if OS != .LINUX {
-                // TODO linux having issues with this on 2026-10-28
-                cmd = tprint("% -validate-ir-detailed", cmd);
+            #if OS != .LINUX && OS != .WINDOWS {
+                // TODO linux/windows having issues with this on 2026-10-28
+                common_slang_args = tprint("% -validate-ir-detailed", common_slang_args);
             }
             run_cmd(cmd);
 
