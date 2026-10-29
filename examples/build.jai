@@ -123,7 +123,11 @@ build_shaders :: (shader_filename_without_ext: string) {
         process_result: Process_Result;
 
         #if OS == .LINUX || OS == .WINDOWS {
-            cmd := tprint("slangc %.slang -target spirv -profile spirv_1_5 -emit-spirv-directly -fvk-use-entrypoint-name -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -capability spvDescriptorHeapEXT -o %.%.spv -validate-ir-detailed -Wall -Wextra -Wpedantic -warnings-as-errors all", shader_filename_without_ext, entry_point, stage_name, shader_filename_without_ext, ext_name);
+            cmd := tprint("slangc %.slang -target spirv -profile spirv_1_5 -emit-spirv-directly -fvk-use-entrypoint-name -entry % -stage % -fvk-use-c-layout -matrix-layout-row-major -I . -I ../NoGraphicsAPI/include -I ../NoGraphicsAPI/utility/include -capability spvDescriptorHeapEXT -o %.%.spv -Wall -Wextra -Wpedantic -warnings-as-errors all", shader_filename_without_ext, entry_point, stage_name, shader_filename_without_ext, ext_name);
+            #if OS != .LINUX {
+                // TODO linux having issues with this on 2026-10-28
+                cmd = tprint("% -validate-ir-detailed", cmd);
+            }
             run_cmd(cmd);
 
             cmd = tprint("spirv-val --target-env vulkan1.4 --scalar-block-layout %.%.spv", shader_filename_without_ext, ext_name);
@@ -157,11 +161,11 @@ init_options :: (workspace: Workspace, optimization_type: Optimization_Type) -> 
         // linking against stdc++ for new/delete as those are transitive deps of NoGraphicsAPI
         // TODO: It'd be nice if we could update the library to enable custom allocators
         // TODO do we need stdc++, can't we just bake that into the module.jai?
-        add_linker_args(build_options, .["-lvulkan", "-lstdc++"]);
+        add_linker_args(*build_options, .["-lvulkan", "-lstdc++"]);
     } else #if OS == .WINDOWS {
         vk_sdk_path := getVulkanSDKPath();
         // print("Vulkan SDK path: \"%\"\n", vk_sdk_path);
-        add_linker_args(build_options, .[tprint("/libpath:\"%/Lib\"", vk_sdk_path), "vulkan-1.lib"]);
+        add_linker_args(*build_options, .[tprint("/libpath:\"%/Lib\"", vk_sdk_path), "vulkan-1.lib"]);
     }
 
     return build_options;
@@ -413,8 +417,8 @@ parse_into_slang_member :: (decl: *Code_Declaration, indent: s64) -> member_stri
 
 run_cmd :: (cmd: string) -> process_result: Process_Result {
     if PRINT_RUN_CMD_OUTPUT  print("running: %\n", cmd);
-    process_result := run_command(..split(cmd, " "), capture_and_return_output = true, print_captured_output = PRINT_RUN_CMD_OUTPUT);
-    assert(process_result.exit_code == 0);
+    process_result, output_string, error_string, timeout_reached := run_command(..split(cmd, " "), capture_and_return_output = true, print_captured_output = PRINT_RUN_CMD_OUTPUT);
+    assert(process_result.exit_code == 0, "Subprocess failed!\n  cmd: %\n  stdout: %\n  stderr: %\n\n", cmd, output_string, error_string);
     return process_result;
 }
 

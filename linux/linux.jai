@@ -750,9 +750,15 @@ StencilAttachment :: struct {
 }
 
 RenderingDesc :: struct {
-    colors:  Span(ColorAttachment);
-    depth:   DepthAttachment;
-    stencil: StencilAttachment;
+    colors:              Span(ColorAttachment);
+    depth:               DepthAttachment;
+    stencil:             StencilAttachment;
+
+    // NOTE: Only used in Metal rendering, where the default NoGraphicsAPI behavior (false)
+    // set front-face winding to CounterClockwise and inverts the viewport. When set to true
+    // we do ClockWise and standard viewport orientation, so y-up points to the top of the
+    // viewport
+    metal_y_up_viewport  := false;
 }
 
 RenderingFlags :: enum u32 {
