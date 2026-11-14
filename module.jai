@@ -55,9 +55,34 @@ assert_range_is_valid :: inline (range: GpuCpuRange($T)) {
     assert(range.size > 0 && range.cpu != null && range.gpu != null, "Invalid GpuCpuRange: %", range);
 }
 
+// Use this when you just want a block of bytes
 gpu_alloc :: (bump_allocator: *BumpAllocator, size: u64) -> GpuCpuRange(u8) {
     result := BumpAllocator.allocate(bump_allocator, size);
     assert_range_is_valid(result);
+    return result;
+}
+
+// Use this when you know the type you want to subsequently populate
+gpu_alloc :: (bump_allocator: *BumpAllocator, $T: Type) -> GpuCpuRange(T) {
+    result := cast,force(GpuCpuRange(T)) BumpAllocator.allocate(bump_allocator, size_of(T));
+    assert_range_is_valid(result);
+    return result;
+}
+
+// Use this when you already have an array of data that you want to copy into newly allocated memory
+gpu_alloc_copy :: (bump_allocator: *BumpAllocator, values: [] $T) -> GpuCpuRange(T) {
+    byte_count := size_of(values);
+    result := cast,force(GpuCpuRange(T)) BumpAllocator.allocate(bump_allocator, xx byte_count);
+    assert_range_is_valid(result);
+    memcpy(result.cpu, values.data, byte_count); 
+    return result;
+}
+
+// Use this when you already have data that you want to copy into newly allocated memory
+gpu_alloc_copy :: (bump_allocator: *BumpAllocator, value: $T) -> GpuCpuRange(T) {
+    result := cast,force(GpuCpuRange(T)) BumpAllocator.allocate(bump_allocator, xx size_of(T));
+    assert_range_is_valid(result);
+    result.cpu.* = value;
     return result;
 }
 
