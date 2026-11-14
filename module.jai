@@ -70,8 +70,8 @@ gpu_alloc :: (bump_allocator: *BumpAllocator, $T: Type) -> GpuCpuRange(T) {
 }
 
 // Use this when you already have an array of data that you want to copy into newly allocated memory
-gpu_alloc_copy :: (bump_allocator: *BumpAllocator, values: [] $T) -> GpuCpuRange(T) {
-    byte_count := size_of(values);
+gpu_alloc_copy_array :: (bump_allocator: *BumpAllocator, values: [] $T) -> GpuCpuRange(T) {
+    byte_count := size_of(T) * values.count;
     result := cast,force(GpuCpuRange(T)) BumpAllocator.allocate(bump_allocator, xx byte_count);
     assert_range_is_valid(result);
     memcpy(result.cpu, values.data, byte_count); 
