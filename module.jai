@@ -1,4 +1,4 @@
-#module_parameters (DEBUG := false);
+#module_parameters () (DEBUG := false);
 
 read_entire_file :: (name: string, zero_terminated := false, log_errors := true) -> ByteSpan, bool {
     file, ok := File.read_entire_file(name, zero_terminated, log_errors);
